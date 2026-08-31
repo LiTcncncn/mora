@@ -1,49 +1,26 @@
-import { z } from "zod";
-import { moraConfigBundleSchema } from "@/domain/config-bundle";
-import {
-  apiSuccess,
-  handleRoute,
-  parseWith,
-  readJsonBody,
-} from "@/server/api/response";
-import { importConfigBundle, summarizeBundle } from "@/server/config/bundle";
-import {
-  fewShotRepository,
-  personaRepository,
-  promptPresetRepository,
-} from "@/server/persistence/repositories";
+import { AppError } from "@/server/api/errors";
+import { handleRoute } from "@/server/api/response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
-  profileId: z.string().min(1),
-  bundle: moraConfigBundleSchema,
-  confirmed: z.boolean(),
-});
-
-/** 服务端重新完整校验，不信任浏览器端校验结果。 */
-export async function POST(request: Request): Promise<Response> {
-  return handleRoute(async () => {
-    const body = parseWith(bodySchema, await readJsonBody(request));
-
-    const [personas, presets, fewShotSamples] = await Promise.all([
-      personaRepository.list(body.profileId),
-      promptPresetRepository.list(body.profileId),
-      fewShotRepository.list(body.profileId),
-    ]);
-
-    const summary = summarizeBundle(body.bundle, {
-      personaCount: personas.length,
-      promptPresetCount: presets.length,
-      fewShotSampleCount: fewShotSamples.length,
-    });
-
-    if (!body.confirmed) {
-      return apiSuccess({ applied: false, summary });
-    }
-
-    const settings = await importConfigBundle(body.profileId, body.bundle);
-    return apiSuccess({ applied: true, summary, settings });
+/**
+ * v1 配置的导入自 Phase 1 起冻结（D41）。
+ *
+ * 中间阶段不允许两套配置同时编辑——同时改两套产生的漂移无法对齐，也会让
+ * v1/v2 的对比失去意义。
+ *
+ * 冻结不损失能力：v1 文件仍然可以导入，走 `/api/behavior-config/import`
+ * 的迁移路径（§13.6.2 第 3 条），并且那条路径会产出迁移报告与预览确认，
+ * 比这里的直接覆盖更安全。
+ *
+ * 导出仍保留（`/api/config/export`），供回滚时取回 v1 配置。
+ */
+export async function POST(): Promise<Response> {
+  return handleRoute(() => {
+    throw new AppError(
+      "CONFLICT",
+      "v1 配置已冻结为只读，请改用 v2 导入入口；v1 配置文件可直接在那里导入，系统会先生成迁移预览",
+    );
   });
 }

@@ -32,7 +32,8 @@ export function Notice({
   tone = "info",
   children,
 }: {
-  tone?: "info" | "error";
+  /** warning 用于「允许继续但必须让人看见」的情形，例如配置降级。 */
+  tone?: "info" | "warning" | "error";
   children: ReactNode;
 }) {
   return (
@@ -40,7 +41,9 @@ export function Notice({
       className={`rounded border px-3 py-2 text-sm ${
         tone === "error"
           ? "border-[var(--color-danger)] text-[var(--color-danger)]"
-          : "text-[var(--color-muted)]"
+          : tone === "warning"
+            ? "border-[var(--color-warning)] text-[var(--color-warning)]"
+            : "text-[var(--color-muted)]"
       }`}
     >
       {children}
