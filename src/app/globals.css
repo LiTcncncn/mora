@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-ink: #16181d;
+  --color-muted: #6b7280;
+  --color-line: #e2e4e9;
+  --color-surface: #ffffff;
+  --color-canvas: #fafafa;
+  --color-accent: #16181d;
+  --color-danger: #b42318;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+/* 极简控件：只用边框和留白表达层级，不使用阴影或渐变。 */
+@layer components {
+  .field {
+    @apply w-full rounded border border-[var(--color-line)] bg-white px-3 py-2 text-[15px] outline-none;
+  }
+  .field:focus {
+    @apply border-[var(--color-ink)];
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 rounded border border-[var(--color-line)] bg-white px-3 py-2 text-sm whitespace-nowrap;
+  }
+  .btn:hover:not(:disabled) {
+    @apply border-[var(--color-ink)];
+  }
+  .btn:disabled {
+    @apply cursor-not-allowed opacity-45;
+  }
+  .btn-primary {
+    @apply border-[var(--color-ink)] bg-[var(--color-ink)] text-white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply opacity-85;
+  }
+  .card {
+    @apply rounded border border-[var(--color-line)] bg-white;
+  }
+  .label {
+    @apply block text-xs text-[var(--color-muted)];
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+}

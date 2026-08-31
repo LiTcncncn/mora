@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-21T00:00:00.000Z",
+  "data": {
+    "activeProfileId": "profile-default",
+    "items": [
+      {
+        "id": "profile-default",
+        "name": "默认测试档案",
+        "createdAt": "2026-08-21T00:00:00.000Z",
+        "updatedAt": "2026-08-21T00:00:00.000Z"
+      }
+    ]
+  }
+}
