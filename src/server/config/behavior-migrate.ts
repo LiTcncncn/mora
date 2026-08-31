@@ -141,9 +141,18 @@ export function migrateV1ToV2(
     const legacy = bundle.settings.energy.policies[level];
     if (!legacy) continue;
 
+    // hardMaxChars 是 v2 新增概念，v1 没有对应字段。保留 v2 默认值而不是
+    // 按 v1 的 targetMaxChars 抬高：抬高会绕过 §4.3 定好的四档梯度。
+    //
+    // 因此 v1 的 targetMaxChars 必须收敛到 v2 的 hardMaxChars 以内。
+    // 直接搬运会产出 hardMaxChars < targetMaxChars 的配置，那违反 §13.4
+    // 的硬约束，整包会被自己的校验拒绝——旧配置就永远迁不过来了。
+    const hardMax = budgets[level].hardMaxChars;
+    const targetMaxChars = Math.min(legacy.targetMaxChars, hardMax);
+
     budgets[level] = {
       ...budgets[level],
-      targetMaxChars: legacy.targetMaxChars,
+      targetMaxChars,
       maxSentences: legacy.targetMaxSentences,
       defaultMaxQuestions: Math.min(2, legacy.maxQuestions),
       defaultMaxActions: Math.min(2, legacy.maxSuggestedActions),
@@ -155,11 +164,9 @@ export function migrateV1ToV2(
       `${level}.defaultMaxActions`,
     );
 
-    // hardMaxChars 是 v2 新增概念，v1 没有对应字段。取 v2 默认值而不是
-    // 按 targetMaxChars 推算：推算出的值会绕过 §4.3 定好的四档梯度。
-    if (legacy.targetMaxChars > budgets[level].hardMaxChars) {
+    if (legacy.targetMaxChars > hardMax) {
       notes.push(
-        `${level} 的 v1 targetMaxChars (${legacy.targetMaxChars}) 高于 v2 默认 hardMaxChars (${budgets[level].hardMaxChars})，已按 v2 默认值保留，请在 Lab 内确认`,
+        `${level} 的 v1 targetMaxChars (${legacy.targetMaxChars}) 超过 v2 的 hardMaxChars (${hardMax})，已收敛到 ${hardMax}。v2 的四档梯度按 §4.3 重新定过，旧值不再适用；如确需更长回复，请在 Lab 内同时调高该档的 hardMaxChars`,
       );
     }
     if (legacy.maxQuestions > 2) {

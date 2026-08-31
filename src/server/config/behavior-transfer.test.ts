@@ -381,6 +381,44 @@ describe("判别与拒绝", () => {
     expect(migrated.id).toBe("fs-0001");
   });
 
+  it("v1 的 targetMaxChars 高于 v2 hardMaxChars 时收敛，而不是产出自相矛盾的配置", () => {
+    // 直接搬运会得到 hardMaxChars < targetMaxChars，那违反 §13.4 的硬约束，
+    // 于是整包被自己的校验拒绝——旧配置永远迁不过来。这是 Phase 1
+    // 「旧配置可安全导入」验收标准的直接反例。
+    const bundle = v1Bundle();
+    bundle.settings.energy.policies.E0.targetMaxChars = 180;
+    bundle.settings.energy.policies.E1.targetMaxChars = 280;
+
+    const preview = prepareImport(JSON.stringify(bundle), baseConfig());
+
+    expect(preview.resolution.rejected).toBe(false);
+    expect(preview.candidate.energy.budgets.E0.targetMaxChars).toBe(140);
+    expect(preview.candidate.energy.budgets.E1.targetMaxChars).toBe(180);
+    expect(preview.migration?.notes.join("\n")).toMatch(/已收敛到 140/);
+  });
+
+  it("迁移产出的配置逐档满足 hardMaxChars ≥ targetMaxChars 与逐档不下降", () => {
+    const bundle = v1Bundle();
+    bundle.settings.energy.policies.E0.targetMaxChars = 999;
+    bundle.settings.energy.policies.E1.targetMaxChars = 999;
+    bundle.settings.energy.policies.E2.targetMaxChars = 999;
+    bundle.settings.energy.policies.E3.targetMaxChars = 999;
+
+    const preview = prepareImport(JSON.stringify(bundle), baseConfig());
+    const budgets = preview.candidate.energy.budgets;
+
+    expect(preview.resolution.rejected).toBe(false);
+    for (const level of ["E0", "E1", "E2", "E3"] as const) {
+      expect(budgets[level].hardMaxChars).toBeGreaterThanOrEqual(
+        budgets[level].targetMaxChars,
+      );
+    }
+    const targets = (["E0", "E1", "E2", "E3"] as const).map(
+      (level) => budgets[level].targetMaxChars,
+    );
+    expect([...targets].sort((a, b) => a - b)).toEqual(targets);
+  });
+
   it("v1 迁移把含世界观的样本列为待拆种子", () => {
     const preview = prepareImport(
       JSON.stringify({
