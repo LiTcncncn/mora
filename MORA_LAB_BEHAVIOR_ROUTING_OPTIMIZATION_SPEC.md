@@ -3,7 +3,7 @@
 > **文档状态：v1.1 定稿（2026-08-31），可直接进入 Phase 0 施工**  
 > 目标读者：产品、策划、开发、Cursor  
 > 配置版本：Behavior Config Schema v2  
-> 决策范围：D1–D56 全部已定（§0.1），其中 D32 已由 D56 取代  
+> 决策范围：D1–D57 全部已定（§0.1），其中 D32 已由 D56 取代  
 > 待答问题：Q23–Q26 四项，均不阻塞开工（§26.3）  
 > 待定稿文本：§27 Persona、§28 策略文本、§29 情景种子（草稿可用，定稿排期见 §25.2）  
 > 核心目标：把 MORA Lab 从“主模型临场理解大量重复规则”改造成“轻量模型识别状态、规则系统编译本轮计划、主模型只负责自然表达”的可解释架构。
@@ -107,6 +107,7 @@
 | D54 | `energyAbsoluteCap` 处置 | 该标识符为死代码，删除而非补定义；`invite` 的问题数固定为 1，能否覆盖策略上限改由 `StrategyPolicy.allowInviteOverride` 显式控制，CLOSE / REPAIR / CONFIRM_CHOICE 为 false（§8.1、§8.4） |
 | D55 | 请求标志 requestFlags | Router 输出增加 `wantsDetailedAnswer` / `wantsMultiStepPlan` 两个二值标志，规则优先、模糊时交模型；只对本轮生效不跨轮粘滞；硬上限优先于标志；`wantsMultiStepPlan` 第一版只记录不生效（§7.1、§7.5、§7.9、§8.5、§8.6） |
 | D56 | 世界观的 Mode 覆盖原则（取代 D32） | 不追求每个 Response Mode 都有显性世界观。`CLOSE` 固定 W0，仅 `required` 时进 W3；`ONE_STEP_HELP` 放开为 `allowWorldview=true` 但只允许 W1、只在 E1–E3、且必须先给出完整动作；`DIRECT_ANSWER`／`CONFIRM_CHOICE`／`REPAIR` 保持 false。J04–J06 改为「仅 Persona」，新增死种子校验（§8.2、§9.3、§9.6、§13.4、§29.11） |
+| D57 | 配置导出导入的完整规定 | Canon Facts／Seeds／Example Cards **随主配置一起导出**（同时保留单库导入导出作为便捷入口，用 `kind` 区分）；`configHash` **覆盖这三类资产**；补齐包信封、v1/v2 判别、排除清单、保存与导入两条校验路径、五个 version 的推进规则、备份策略与往返测试（§13.6、§18.1、§19.6） |
 
 §25 记录文档与文本迁移的处理方式，§26 记录待答的新问题，§27–§29 是交策划修改的文本草稿，§30 是本次定稿的变更记录。
 
@@ -1677,7 +1678,7 @@ Canon Facts 与 Worldview Seeds 是策划的主要工作面，必须在 Lab 内�
 - 死种子提示（D56）：种子的 `allowedResponseModes` 全部落在 `allowWorldview=false` 的 mode 上时，列表中标红并提示「该种子永不可选」，启用被阻塞；
 - 反向提示：策划把某个 mode 的 `allowWorldview` 改为 false 时，保存前列出会因此失效的种子数量与 id。这一项是 D56 那类冲突的根源——策略开关与种子标注分别维护、没有交叉校验，改一处不知道另一处受影响；
 - 每条记录的 `version` 在保存时自增，`updatedAt` 与修改来源写入审计；
-- 批量导入导出 JSON，导入走预览确认，不静默覆盖。
+- 批量导入导出 JSON，导入走预览确认，不静默覆盖。文件 `kind` 为 `mora_worldview_library`，与主配置共用信封与三阶段导入流程（§13.6）；两库也随主配置一起导出，单库文件只是便捷入口。
 
 #### 试跑
 
@@ -1866,7 +1867,8 @@ Lab 内提供覆盖矩阵视图：行为 Response Mode，列为 Energy 档，单
 - `reviewStatus` 字段：`pending` / `approved` / `rejected`，只有 `approved` 且 `enabled` 的卡片进入检索；
 - 保存时跑 canon lint 与物种白名单检查；
 - 试跑入口：给定用户消息与 Turn Plan，展示候选卡片、打分明细与最终选择；
-- `evaluatorWarnings` 可编辑，但明确标注该字段不进主模型上下文。
+- `evaluatorWarnings` 可编辑，但明确标注该字段不进主模型上下文；
+- 批量导入导出 JSON，文件 `kind` 为 `mora_example_library`，与主配置共用信封与三阶段导入流程（§13.6）；示例卡同时随主配置一起导出。
 
 ---
 
@@ -1959,7 +1961,13 @@ Persona、Energy、Strategy、Response Contract 的权威规则拆分后，主 P
 
 ```ts
 interface BehaviorConfigV2 {
+  // ---- 信封 ----
   schemaVersion: 2;
+  kind: "mora_behavior_config";
+  exportedAt: string;               // ISO 8601，仅导出时写入
+  sourceProfileName: string;
+
+  // ---- 版本 ----
   taxonomyVersion: string;
   energyPolicyVersion: string;
   strategyPolicyVersion: string;
@@ -1967,16 +1975,29 @@ interface BehaviorConfigV2 {
   exampleLibraryVersion: string;
   configHash: string;
 
+  // ---- 参数 ----
   brandCanon: BrandCanonSettings;
   router: TurnRouterSettings;
+  requestFlags: RequestFlagSettings;
   energy: EnergyV2Settings;
   majorEvent: MajorEventSettings;
   strategies: Record<ResponseMode, StrategyPolicy>;
   worldview: WorldviewSettings;
   exampleRetrieval: ExampleRetrievalSettings;
   responseContract: ResponseContractSettings;
+
+  // ---- 内容资产（D57：随主配置一起导出）----
+  canonFacts: WorldviewCanonFact[];
+  worldviewSeeds: WorldviewSeed[];
+  exampleCards: BehaviorExampleCard[];
 }
 ```
+
+三类内容资产必须在顶层结构里有位置（D57）。此前 `worldview` 只承载 §13.2 的调度参数、`exampleRetrieval` 只承载检索权重，而 Canon Facts（§9.7）、Worldview Seeds（§9.8）、Behavior Example Cards（§11）——策划的主要工作产物——在顶层没有字段，导致「配置」到底包不包含它们始终没有答案。
+
+`kind`、`exportedAt`、`sourceProfileName` 三个信封字段沿用 v1 包（`src/domain/config-bundle.ts`）的设计。v1 用 `kind` 做文件类型识别、用后两项做溯源，这套做法是对的，v2 不应丢掉。
+
+完整的导出导入规定见 §13.6。
 
 ### 13.1 Router Settings
 
@@ -1998,6 +2019,22 @@ interface TurnRouterSettings {
   maxRetries: 1;
 }
 ```
+
+#### 13.1.1 Request Flag Settings（D55）
+
+```ts
+interface RequestFlagSettings {
+  /** 规则关键词表，代码常量，不进 §13.5 可编辑白名单 */
+  detailedAnswerKeywords: readonly string[];
+  multiStepPlanKeywords: readonly string[];
+  /** wantsDetailedAnswer 是否作用于编译；第一版 true */
+  detailedAnswerEnabled: boolean;
+  /** wantsMultiStepPlan 是否作用于编译；第一版固定 false，只记录（§8.5） */
+  multiStepPlanEnabled: false;
+}
+```
+
+两个关键词表与两个开关全部只读，随代码发布。它们纳入 `configHash`（§13.6.3），因为改动会直接改变篇幅与动作数。
 
 ### 13.2 Worldview Settings
 
@@ -2031,12 +2068,14 @@ JSON 配置和结构化策略文件是唯一事实源。
 
 - Settings UI 直接读取活动配置；
 - 能量说明页面由活动配置渲染，说明面由 Lab 界面承担；
-- 导出配置时同时输出版本号和 configHash；
+- 导出配置时同时输出版本号和 configHash，计算范围见 §13.6.3；
 - **不再生成任何说明类 `.md`**。`MORA_ENERGY_GUIDE.md` 按 §25.1 删除，不做生成物替代。
 
 ### 13.4 配置校验
 
-保存或导入时校验：
+以下清单同时用于保存与导入两条路径，但**失败处理不同**：保存是单点修改可直接拒绝，导入是整包替换需区分「拒绝整包」「导入并自动禁用该条」「仅警告」三种处置。差异表见 §13.6.6，实施必须按那张表执行，不要把本节当成两条路径共用一套处理。
+
+校验项：
 
 - E0–E3 targetMaxChars 和 hardMaxChars 逐档不下降；
 - hardMaxChars 不小于 targetMaxChars；
@@ -2076,7 +2115,8 @@ Lab 内可编辑的配置项收敛为以下清单，其余为只读展示。
 | Behavior Examples | 示例卡全字段 CRUD、reviewStatus | id |
 | Response Contract | 无 | 全部（随代码发布） |
 | Safety | 规则表的关键词与阈值 | 类别枚举、urgent 覆盖优先级、占位回复开关的生产默认值 |
-| Config Versions & Lint | 禁词表的新增项 | schemaVersion、configHash |
+| Config Versions & Lint | 禁词表的新增项 | schemaVersion、kind、configHash、五个 version 字段（由 §13.6.4 系统自增） |
+| Config Transfer | 导出／导入／备份恢复的操作入口 | 包结构、排除清单、hash 计算范围（§13.6） |
 
 只读项必须可见并可复制，用于解释行为；不可见等于无法调试。
 
@@ -2092,6 +2132,179 @@ Lab 内可编辑的配置项收敛为以下清单，其余为只读展示。
 - **不随配置导出**（D48）。它是工作产物不是配置，混进导出会让未定稿的提案跟着配置流到别处，也会让 configHash 因为一条提案而变化。与事件指纹同样处理。
 
 这样既保住了「一条规则只有一个权威定义」，也不让策划的判断卡在沟通环节。
+
+### 13.6 配置导出与导入（D57）
+
+此前导出导入的规定散落在 §13.3、§13.4、§18.1、§9.10、§11.7、D36、D48 与 §19.6，每处一两句，从未作为一个功能被完整设计。本节收口，实施以本节为准。
+
+#### 13.6.1 三种导出粒度
+
+| kind | 内容 | 用途 |
+|---|---|---|
+| `mora_behavior_config` | 完整 `BehaviorConfigV2`，含三类内容资产 | 整体迁移、备份、跨环境同步 |
+| `mora_worldview_library` | `canonFacts` + `worldviewSeeds` | 策划批量编辑世界观素材（§9.10） |
+| `mora_example_library` | `exampleCards` | 策划批量编辑示例卡（§11.7） |
+
+三者共用同一套信封字段（`schemaVersion` / `kind` / `exportedAt` / `sourceProfileName`），靠 `kind` 区分。导入器先读 `kind` 再决定走哪条路径；`kind` 不识别时直接拒绝，不做猜测。
+
+单库文件**不含** `configHash` 与五个 version 字段——它们是主配置的属性，单库导入后由接收端重新计算（§13.6.3）。
+
+#### 13.6.2 v1 与 v2 的判别
+
+导入器必须能同时接受两代文件。判别只看 `schemaVersion`，用 discriminated union 实现：
+
+```ts
+const anyConfigFileSchema = z.discriminatedUnion("schemaVersion", [
+  moraConfigBundleSchema,        // schemaVersion: 1，现有实现
+  behaviorConfigV2Schema,        // schemaVersion: 2
+]);
+```
+
+判别顺序：
+
+```text
+1. JSON 解析失败                    → 拒绝，提示「不是合法 JSON」
+2. 缺少 schemaVersion               → 拒绝，提示「无法识别的配置文件」
+3. schemaVersion === 1              → 走 §18.1 迁移器，产出 v2 预览
+4. schemaVersion === 2 且 kind 已知  → 走 §13.6.5 导入流程
+5. schemaVersion > 2                → 拒绝，提示「该文件来自更新版本的 Lab」
+```
+
+第 5 条必须显式拒绝而不是尝试兼容。读一个字段更多的未来文件看似能work，实际会静默丢弃新字段，导出时再写回去就造成数据损失。
+
+`schemaVersion: 1` 的文件里 `fewShotSamples` 是 `optional`，其语义是**字段缺失表示「这份配置不管样本」、显式空数组表示「清空样本」**。迁移器必须保留这个区分：缺失时不生成任何 Example Card 候选并在迁移报告中注明，空数组时生成零张卡且标记「源配置显式清空」。这一条容易被当成同一种情况处理，从而把用户既有语料清空。
+
+#### 13.6.3 configHash 的计算范围
+
+`configHash` **覆盖三类内容资产**（D57）。计算范围精确定义为：
+
+```text
+纳入 hash：
+  brandCanon / router / requestFlags / energy / majorEvent
+  strategies / worldview / exampleRetrieval / responseContract
+  canonFacts / worldviewSeeds / exampleCards
+
+排除在 hash 之外：
+  schemaVersion / kind / exportedAt / sourceProfileName
+  configHash 自身
+  五个 version 字符串
+```
+
+覆盖三类资产的理由：§9.5.5 要求「当轮使用的 `schedulerConfigSnapshot` 与 configHash 写入 Run，用于解释行为突变」。若 hash 不含种子库，策划改一颗种子的 `triggerDescription` 或 `attitude` 后 configHash 不变而行为已变，这个用途就失效——而这正是 §1 列为当前痛点的那类漂移。
+
+排除 `exportedAt` 的理由：同一份配置连续导出两次必须得到相同的 hash，否则无法用 hash 判断两份文件是否等价。
+
+排除五个 version 字符串的理由：它们由 §13.6.4 的规则随内容变化而递增，若纳入 hash 会形成循环（改内容 → 版本变 → hash 变 → 但 hash 本应只反映内容）。
+
+计算方式必须确定：
+
+- 对象键按字典序递归排序后序列化，不依赖 JS 对象的插入顺序；
+- 数组**保持原有顺序**，不排序——种子顺序不影响行为，但排序会掩盖「顺序被意外改动」这类问题；
+- 数字按 JSON 规范序列化，不做精度调整；
+- 算法 SHA-256，取前 16 个十六进制字符；
+- 写入固定输入输出的单元测试，避免实现漂移（与 §9.5.4 的 FNV-1a 同样处理）。
+
+软删除的记录（`enabled=false` 但保留 id）**纳入 hash**。它们仍在配置里，且启停状态直接影响行为。
+
+#### 13.6.4 五个 version 字段的推进规则
+
+| 字段 | 覆盖范围 | 递增时机 |
+|---|---|---|
+| `taxonomyVersion` | ResponseMode、Energy 档位、MajorEventType、WorldviewMode 等枚举 | 枚举增删时，随代码发布 |
+| `energyPolicyVersion` | `energy` | 任一档位数值变化时 |
+| `strategyPolicyVersion` | `strategies` | 任一策略字段变化时 |
+| `worldviewVersion` | `worldview` + `canonFacts` + `worldviewSeeds` | 调度参数或任一条素材变化时 |
+| `exampleLibraryVersion` | `exampleRetrieval` + `exampleCards` | 检索参数或任一张卡变化时 |
+
+规则：
+
+- 格式为**单调递增整数的字符串**（`"1"`、`"2"`……），不用语义化版本。语义化版本需要人判断「这算 major 还是 minor」，而这里唯一的用途是判断新旧；
+- 保存时由系统自增，不可手填（与 §9.10 的单条 `version` 一致）；
+- 一次保存同时改动多个范围时，各自独立自增；
+- **导入一份任一 version 低于当前值的配置时不拒绝，但必须在预览中显著标出「这是一次降级」并列出具体字段**。降级是合法操作（回滚场景，见 D47），但必须让人看见；
+- 导入后各 version 取「导入值」，不取 max。导入的语义是替换而非合并，取 max 会造出一个既不是旧配置也不是新配置的版本号。
+
+#### 13.6.5 导入流程
+
+导入分三个阶段，**任何阶段失败都不改动活动配置**：
+
+```text
+阶段一：解析与判别
+  1. JSON 解析
+  2. §13.6.2 判别 schemaVersion 与 kind
+  3. Zod 严格校验结构（禁止未知字段）
+  4. v1 文件在此转换为 v2 候选（§18.1）
+
+阶段二：校验与预览
+  5. 跑 §13.4 全部校验（按 §13.6.6 的导入路径口径）
+  6. 重算 configHash，与文件内的 configHash 比对
+  7. 生成预览：变更摘要、降级警告、警告清单、无法自动决定的项
+  8. 等待用户显式确认
+
+阶段三：备份与提交
+  9. 备份当前活动配置（§13.6.7）
+ 10. 重新生成 Persona / Preset / 资产的档案内 id，重写 active 引用
+ 11. 原子写入，失败则整体回滚
+ 12. 写入审计记录：导入时间、来源文件名、旧 configHash、新 configHash
+```
+
+第 6 步的 hash 比对**不一致时只警告不阻塞**。文件被手工编辑过是常见且合理的操作（策划用编辑器批量改种子），但必须让人知道这份文件不是原样导出的产物。比对结果写入审计。
+
+第 8 步的确认不可跳过，也不提供「记住我的选择」。§18.1 已定「不得静默覆盖用户旧配置」，一个可以被记住的确认等于没有确认。
+
+第 10 步沿用 v1 实现的做法（`importConfigBundle`）：id 在导入时重新生成，避免跨 profile 的 id 冲突。但**内容资产的 id 必须保留原值**，这与 Persona / Preset 相反——Canon Facts、Seeds、Example Cards 的 id 被历史 Run 引用（§9.10 的软删除就是为了让历史 Run 可解释），重新生成会让所有历史 Run 的 `seedId` 失去指向。
+
+#### 13.6.6 保存与导入的校验差异
+
+§13.4 的校验清单同时用于两条路径，但失败处理不同。此前只写「保存或导入时校验」，未区分，实施无从判断。
+
+| 校验类别 | 保存（单点修改） | 导入（整包替换） |
+|---|---|---|
+| 结构与类型错误 | 拒绝保存 | **拒绝整包**，不做部分导入 |
+| 硬约束违反（如 hardMaxChars < targetMaxChars、策略 ID 缺失、废弃键名、`allowInviteOverride` 违规） | 拒绝保存 | **拒绝整包** |
+| 引用完整性（种子引用的 Canon Fact 不存在或未启用） | 拒绝启用该条 | 导入，但把该条自动置为 `enabled=false` 并在预览中列出 |
+| 死种子校验（D56） | 保存警告、启用阻塞 | 导入，但把该条自动置为 `enabled=false` 并在预览中列出 |
+| 软约束警告（`providerMaxOutputTokens` 偏低、示例卡未达 §11.6 门槛、canon lint 命中非禁词类提示） | 警告，允许保存 | 警告，允许导入 |
+| canon lint 命中禁词 | 拒绝保存 | 导入，但把该条自动置为 `enabled=false` 并在预览中列出 |
+
+**不做部分导入**是硬原则：结构或硬约束出错时整包拒绝，不允许「导入能导的部分」。部分导入会产生一个既不是文件内容也不是原配置的第三种状态，事后无法解释当前配置从何而来。
+
+引用完整性、死种子与禁词三类采用「导入并禁用」而非拒绝整包，原因是它们是**单条记录的问题**，且禁用后不影响运行（§9.9 的第一段过滤要求 `enabled`）。拒绝整包会让一颗坏种子挡住 70 条好种子的迁移。所有被自动禁用的条目必须在预览阶段列出 id 与原因，导入后在 Lab 内标红，不能只在导入时提一次。
+
+#### 13.6.7 导出排除清单
+
+以下内容**一律不进任何导出文件**：
+
+| 内容 | 位置 | 排除理由 |
+|---|---|---|
+| Provider API Key、环境变量、路径 | `.env.local` | 凭据 |
+| 事件指纹 | `data/event-fingerprints.json` | 用户数据（D36） |
+| 策略提案 | `data/strategy-proposals.json` | 工作产物（D48） |
+| `WorldviewScheduleState` | 每个 conversation | **用户数据（D57 补）** |
+| Conversation、Message、Memory | — | 用户数据 |
+| Run、Context Snapshot、评测记录 | — | 历史事实，不是配置 |
+| 种子选中率报告 | Phase 4 产出 | 统计产物 |
+| profile id | — | 环境相关标识 |
+
+`WorldviewScheduleState`（§9.5.1）是本轮新增且此前漏掉的一类。它含 `scheduleSeed`、`credit`、`rollingOutcomes`、`recentSeedIds`，是 per-conversation 的用户数据，与事件指纹属于完全同一类风险——用户数据混进配置、随分享流出。§9.5.5 讨论过配置变更时它如何处理，唯独没说它不进导出。
+
+排除方式必须是**白名单序列化**：导出时按 `BehaviorConfigV2` 的字段逐项挑选，而不是取整个 store 再删除敏感字段。后者在新增字段时会默认泄露，前者在新增字段时默认不导出——两种默认失败方向，只有前者是安全的。
+
+#### 13.6.8 导出文件的其他要求
+
+- 文件名建议 `mora-config-<sourceProfileName>-<YYYY-MM-DD>-<configHash 前 8 位>.json`，把 hash 放进文件名，便于在不打开文件的情况下判断两份导出是否相同；
+- JSON 以 2 空格缩进、键序稳定输出，使文件可进 git diff。这是策划批量编辑素材的主要工作方式；
+- 单文件体积上限 8 MB，超出时拒绝导出并提示改用单库导出。70 条种子加几十张卡远低于此，触发上限说明有数据混入。
+
+#### 13.6.9 备份策略
+
+§18.1 只说「保留原配置备份」，未定存放与保留期。补齐：
+
+- 位置 `data/config-backups/<ISO 时间戳>-<旧 configHash 前 8 位>.json`，格式与正常导出完全一致，便于直接重新导入；
+- 触发时机：每次导入前、每次 v1→v2 迁移前、每次批量单库导入前。单条编辑不触发（有 `version` 与审计可追）；
+- 保留最近 20 份，超出时删除最旧的。按份数而不是按时间，因为导入是低频操作，按 12 个月滚动可能一份不剩；
+- Lab 内提供备份列表与一键恢复，恢复走与导入完全相同的三阶段流程，不走捷径；
+- 备份目录**不随配置导出**，也不进 git（`.gitignore` 已覆盖 `data/*`）。
 
 ---
 
@@ -2322,6 +2535,13 @@ src/server/
     rules.ts
   evaluation/
     policy-observer.ts
+  config/
+    bundle-v2.ts          // 白名单序列化、三种 kind 的导出
+    config-hash.ts        // §13.6.3 的 hash 计算
+    import-pipeline.ts    // §13.6.5 的三阶段导入
+    version-bump.ts       // §13.6.4 的 version 自增
+    backup.ts             // §13.6.9 的备份与恢复
+    migrate-v1-to-v2.ts   // §18.1
 
 data-seed/
   worldview-canon.json
@@ -2336,8 +2556,9 @@ data/
   behavior-examples.json
   strategy-policies.json
   safety-rules.json
-  major-event-fingerprints.json
-  strategy-proposals.json
+  major-event-fingerprints.json     // 不随配置导出（D36）
+  strategy-proposals.json           // 不随配置导出（D48）
+  config-backups/                   // §13.6.9，保留最近 20 份，不随配置导出
 
 scripts/
   simulate-worldview-scheduler.mjs
@@ -2373,13 +2594,19 @@ v1 config
 输出 migration report
 ```
 
+迁移器的入口由 §13.6.2 的判别逻辑触发（`schemaVersion === 1`），产出物是一份 v2 候选，随后走 §13.6.5 的阶段二与阶段三，不另设一条导入路径。
+
 不得静默覆盖用户旧配置。导入 v1 后：
 
-- 保留原配置备份；
+- 保留原配置备份，位置与保留期见 §13.6.9；
 - 显示迁移预览；
 - 列出无法自动决定的内容；
 - 用户确认后保存 v2；
 - Run 仍保留旧 settings snapshot。
+
+v1 包中 `fewShotSamples` 的 `optional` 语义必须保留：**字段缺失表示「这份配置不管样本」，显式空数组表示「清空样本」**（§13.6.2）。两者不可合并处理，否则会把用户既有语料清空。
+
+v1 包没有 `configHash` 与五个 version 字段，迁移时全部初始化为 `"1"` 并重新计算 hash，不试图从旧配置推断。
 
 ### 18.2 few-shot 自动迁移只能生成候选
 
@@ -2589,6 +2816,58 @@ Safety：
 - Run Snapshot 能复现当时的 Turn Plan；
 - 不再存在另一套手工维护的不同档位数字。
 
+#### 19.6.1 导出导入测试（D57）
+
+现有实现的 `src/server/config/` 下只有 `bundle.ts` 与 `env.ts`，没有任何测试。本节必须在 Phase 6 前补齐——往返丢字段是这类功能最常见的缺陷，且一旦发生就是静默的数据损失。
+
+**往返等价性**
+
+- 导出 → 导入 → 再导出，两份文件除 `exportedAt` 外逐字节相同；
+- 往返后 `configHash` 不变；
+- 往返后三类内容资产的 **id 全部保留原值**（§13.6.5），Persona / Preset 的 id 重新生成；
+- 往返后软删除记录（`enabled=false`）仍在包内且状态不变；
+- 单库导出 → 单库导入 → 主配置导出，资产内容与直接主配置往返一致。
+
+**configHash**
+
+- 固定输入产出固定 hash（防实现漂移，与 §9.5.4 的 FNV-1a 同处理）；
+- 改动任一颗种子的 `attitude` → hash 变化（验证覆盖三类资产）；
+- 改动 `exportedAt` 或 `sourceProfileName` → hash 不变；
+- 改动任一 version 字段 → hash 不变；
+- 对象键顺序不同但内容相同的两份配置 → hash 相同；
+- 数组顺序不同 → hash **不同**（顺序变化必须可见）；
+- 把一条记录从 `enabled=true` 改为 `false` → hash 变化。
+
+**判别与拒绝**
+
+- `schemaVersion: 1` 走迁移器；`schemaVersion: 2` 走直接导入；
+- `schemaVersion: 3` 被拒绝，提示来自更新版本；
+- 缺少 `schemaVersion`、`kind` 不识别、JSON 非法 → 三种拒绝各有明确提示；
+- 含未知字段的 v2 文件被 Zod 严格模式拒绝；
+- v1 包 `fewShotSamples` 缺失 → 不生成卡且报告注明；显式 `[]` → 生成零张卡并标记「源配置显式清空」（两者行为可区分）。
+
+**校验路径差异（§13.6.6）**
+
+- 硬约束违反（`hardMaxChars < targetMaxChars`）→ 拒绝整包，活动配置逐字节未变；
+- 含一颗死种子（D56）→ 导入成功，该种子 `enabled=false`，预览中列出其 id 与原因，其余 69 条正常；
+- 含一条引用了不存在 Canon Fact 的种子 → 同上处理；
+- 含 canon lint 禁词的记录 → 导入并禁用，不拒绝整包；
+- 软约束警告（示例卡未达 §11.6 门槛）→ 导入成功且有警告；
+- **任一阶段失败后活动配置与 `data/` 下所有文件均未被修改**（用文件哈希断言，不只看返回值）。
+
+**降级与版本**
+
+- 导入 `worldviewVersion` 低于当前值的配置 → 不拒绝，预览中标出降级并列出字段；
+- 导入后各 version 取导入值而非 max；
+- 保存一次同时改动 `energy` 与 `strategies` → 两个对应 version 各自自增，其余不变。
+
+**排除清单（§13.6.7）**
+
+- 导出文件中不含 API Key、事件指纹、策略提案、`WorldviewScheduleState`、Conversation、Memory、Run、profile id；
+- 在 `BehaviorConfigV2` 之外新增一个 store 字段后，导出内容不变（验证白名单序列化，而非黑名单删除）；
+- 备份文件格式与正常导出一致，可直接重新导入；
+- 备份超过 20 份时删除最旧的。
+
 ---
 
 ## 20. 评测指标
@@ -2695,14 +2974,16 @@ few-shot 的“命中率”不再作为核心体验指标。改为分别记录�
 
 ### Phase 1：Schema v2 与单一事实源
 
-- 新增 Behavior Config v2；
-- 实现版本号、configHash 和 Zod 校验；
+- 新增 Behavior Config v2，顶层含三类内容资产（§13）；
+- 实现五个 version 字段的自增规则、configHash（覆盖三类资产）与 Zod 严格校验（§13.6.3、§13.6.4）；
+- 实现 §13.6 的导出导入全链路：三种 `kind`、v1/v2 判别、三阶段导入、白名单序列化、备份与恢复；
+- 补齐 §19.6.1 的导出导入测试（现有 `src/server/config/` 无任何测试）；
 - Settings 和说明页读取同一配置；
 - 实现 v1 → v2 迁移预览；
 - 加入 legacy canon lint；
 - 切换工作面（D41）：Settings 与说明面自本 Phase 起只读写 v2 配置，v1 配置**冻结为只读**，仅供回滚使用。中间阶段不允许两套配置同时编辑——同时改两套产生的漂移无法对齐，也会让 v1/v2 的对比失去意义。
 
-验收：配置与说明不再漂移；旧配置可安全导入；v1 配置已置为只读。
+验收：配置与说明不再漂移；旧配置可安全导入；v1 配置已置为只读；§19.6.1 的往返等价性与「失败不改动活动配置」断言全部通过。
 
 ### Phase 2：Router Shadow Mode
 
@@ -2798,11 +3079,12 @@ D41 从 Phase 1 起把 v1 配置冻结为只读，因此回滚时拿到的是**�
 14. v1 配置和数据可恢复，迁移没有静默覆盖用户文件；
 15. 回复策略数值、能量预算、世界观频率、事实库与种子库、示例库均可在 Lab 内查看与按 §13.5 白名单编辑；
 16. Safety 规则层生效，urgent 返回占位回复且不进入主模型，§6.4 的 10 条负样本 smoke test 误伤为 0；
-17. 事件指纹被检索层硬编码排除，且不随配置导出。
+17. 事件指纹被检索层硬编码排除，且不随配置导出；
+18. 配置导出导入按 §13.6 完整实现：三类内容资产随主配置导出、`configHash` 覆盖三类资产、v1/v2 可判别、三阶段导入且失败不改动活动配置、白名单序列化、§13.6.7 排除清单为空泄露、备份可一键恢复，且 §19.6.1 全部测试通过。
 
 ### 22.1 对外发布的额外门禁
 
-以上 17 条只覆盖**内部测试版**。任何面向真实用户的发布还必须额外满足：
+以上 18 条只覆盖**内部测试版**。任何面向真实用户的发布还必须额外满足：
 
 1. Safety `urgent` 已替换为真实安全回复，占位文本「危险危险危险。」不再存在于任何生产路径；
 2. 事件指纹的保留期与隐私披露已确认；
@@ -3711,6 +3993,23 @@ D56 的处理是分开的：`ONE_STEP_HELP` 放开为 `allowWorldview=true`（�
 19.6 新增死种子校验：启用的种子其 `allowedResponseModes` 必须至少有一个 mode 允许世界观，否则保存警告、启用阻塞；`allowWorldview` 由 true 改 false 时提示受影响种子（§13.4、§9.10）；
 19.7 §29 的 Mode 覆盖统计重算：入库 56 条、仅 Persona 14 条；四个 `allowWorldview=false` 的 mode 记「—」而非数字，原「DIRECT_ANSWER 8、CLOSE 5」属误导性统计（§29.1）。
 
+### 配置导出与导入（D57）
+
+原稿的导出导入规定散落在七处、每处一两句，从未作为功能被完整设计。新增 §13.6 收口，并补齐以下空缺：
+
+19.8 `BehaviorConfigV2` 顶层补入 `canonFacts` / `worldviewSeeds` / `exampleCards` 三类内容资产与 `kind` / `exportedAt` / `sourceProfileName` 三个信封字段。此前三类资产在顶层无位置，「配置是否包含它们」没有答案；信封字段则是 v1 包已有而 v2 丢掉的（§13）；
+19.9 定义三种导出粒度（主配置、世界观库、示例库）共用信封、靠 `kind` 区分；三类资产随主配置一起导出，单库文件只是便捷入口（§13.6.1、§9.10、§11.7）；
+19.10 定义 v1/v2 判别规则（discriminated union）与五种拒绝情形；明确 `schemaVersion > 2` 必须显式拒绝而非尝试兼容；保留 v1 包 `fewShotSamples` 的「缺失＝不管样本、空数组＝清空」语义（§13.6.2、§18.1）；
+19.11 定义 `configHash` 的精确计算范围：**覆盖三类内容资产**，排除信封字段、hash 自身与五个 version；键序递归排序、数组保序、SHA-256 取前 16 位并写固定用例。覆盖资产的理由是 §9.5.5 的「解释行为突变」若不含种子库即失效（§13.6.3）；
+19.12 定义五个 version 字段的推进规则：单调递增整数、系统自增、各范围独立、允许降级但必须在预览中标出、导入后取导入值而非 max（§13.6.4）；
+19.13 定义三阶段导入流程（解析判别 → 校验预览 → 备份提交），**任何阶段失败都不改动活动配置**；hash 不一致只警告不阻塞；确认不可跳过且不提供「记住选择」；内容资产 id 保留原值而 Persona/Preset id 重新生成（§13.6.5）；
+19.14 拆分保存与导入的校验差异表，取代原「保存或导入时校验」的含混表述：结构与硬约束错误拒绝整包、引用完整性／死种子／禁词三类「导入并自动禁用该条」、软约束仅警告；明确**不做部分导入**（§13.4、§13.6.6）；
+19.15 补全导出排除清单，新增此前漏掉的 `WorldviewScheduleState`（与事件指纹同类的用户数据），并规定排除方式必须是**白名单序列化**而非黑名单删除——后者在新增字段时默认泄露（§13.6.7）；
+19.16 补充导出文件要求：文件名含 configHash 前 8 位、2 空格缩进且键序稳定以便 git diff、8 MB 体积上限（§13.6.8）；
+19.17 补齐备份策略：位置 `data/config-backups/`、格式与导出一致可直接重导、保留最近 20 份、Lab 内一键恢复且走相同三阶段流程。原稿只有「保留原配置备份」一句（§13.6.9、§18.1）；
+19.18 新增 §19.6.1 导出导入测试，覆盖往返等价性、hash 敏感性、判别与拒绝、校验路径差异、降级与版本、排除清单六组断言。现有 `src/server/config/` 无任何测试，往返丢字段是这类功能最常见且静默的缺陷；
+19.19 Phase 1 交付物、§17 文件建议（新增 `src/server/config/` 六个模块）、DoD 增至 18 条同步更新（§21、§17、§22）。
+
 ### 示例与文档
 
 20. few-shot 改为按 Response Mode 硬过滤的行为示例卡，并设覆盖门槛：8 个 mode 各 ≥3 张、高频三档各 ≥5 张（§11.6）；
@@ -3719,7 +4018,7 @@ D56 的处理是分开的：`ONE_STEP_HELP` 放开为 `allowWorldview=true`（�
 
 ### 验收与节奏
 
-23. 量化门槛写入 §20.5；DoD 拆为内部 17 条（§22）与对外三条门禁（§22.1）；
+23. 量化门槛写入 §20.5；DoD 拆为内部 18 条（§22）与对外三条门禁（§22.1）；
 24. Phase 0–6 全量实现，默认开关切换独立设卡；Phase 1 起以 v2 为唯一工作面、v1 冻结只读，回滚时允许应急解冻（§21）；
 25. 标注样本要求真实脱敏不低于 30%、关键边界双人交叉标注（§25.4）；
 26. 旧 Persona 新建记录而非原地改写（§25.5）。
