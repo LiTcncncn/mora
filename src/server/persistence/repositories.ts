@@ -13,6 +13,7 @@ import {
   type SettingsData,
 } from "@/domain/settings";
 import { AppError } from "../api/errors";
+import { behaviorConfigRepository } from "../config/behavior-repository";
 import { JsonStore } from "./atomic-json-store";
 import { buildDefaultSettings } from "./defaults";
 
@@ -139,6 +140,7 @@ export const profileRepository = {
       next: { items: current.items.filter((item) => item.profileId !== profileId) },
       result: null,
     }));
+    await behaviorConfigRepository.removeForProfile(profileId);
 
     await profilesStore.update((current) => {
       const items = current.items.filter((item) => item.id !== profileId);

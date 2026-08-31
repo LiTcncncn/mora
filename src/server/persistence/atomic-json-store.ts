@@ -17,7 +17,8 @@ export type StoreFileName =
   | "prompt-presets"
   | "fewshot"
   | "runs"
-  | "evals";
+  | "evals"
+  | "behavior-config";
 
 /** 路径只能由固定文件名构造，绝不接受来自 API 的任意路径。 */
 function resolveStorePath(name: StoreFileName): string {
