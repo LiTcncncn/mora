@@ -45,33 +45,30 @@ export function ModelCell({
 
   return (
     <div className="card flex min-w-0 flex-col">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-3 py-2">
-        <span className="text-sm font-medium">{slot.label}</span>
-        <span className="mono text-[var(--color-muted)]">
-          {labelOf(PROVIDER_LABELS, slot.provider)} · {slot.modelId}
-        </span>
-      </div>
-
       <div className="flex min-w-0 flex-1">
-        <div className="min-w-0 flex-1 px-3 py-3">
+        <div className="min-w-0 flex-1 px-2 py-1.5">
           {failed ? (
-            <p className="text-sm text-[var(--color-danger)]">{CALL_FAILED_TEXT}</p>
+            <p className="text-[15px] leading-snug text-[var(--color-danger)]">
+              <span className="text-[var(--color-muted)]">MORA：</span>
+              {CALL_FAILED_TEXT}
+            </p>
           ) : (
             <>
-              <p className="text-[15px] whitespace-pre-wrap break-words">
+              <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">
+                <span className="text-[var(--color-muted)]">MORA：</span>
                 {shownText}
               </p>
               {needsFold ? (
                 <button
                   type="button"
-                  className="mt-2 text-xs underline"
+                  className="mt-1 text-xs underline"
                   onClick={() => setExpanded((value) => !value)}
                 >
                   {expanded ? "收起" : "展开全文"}
                 </button>
               ) : null}
               {run?.finishReason && run.finishReason !== "completed" ? (
-                <p className="mt-2 text-xs text-[var(--color-danger)]">
+                <p className="mt-1 text-xs text-[var(--color-danger)]">
                   {FINISH_REASON_TEXT[run.finishReason]}
                 </p>
               ) : null}
@@ -90,8 +87,14 @@ export function ModelCell({
           </button>
           {infoOpen ? (
             <div className="absolute top-0 right-full z-20 mr-0 w-56 border bg-white p-3 text-xs shadow-md">
+              <div className="space-y-2 text-[var(--color-muted)]">
+                <p className="font-medium text-[var(--color-ink)]">{slot.label}</p>
+                <p className="mono">
+                  {labelOf(PROVIDER_LABELS, slot.provider)} · {slot.modelId}
+                </p>
+              </div>
               {run ? (
-                <div className="space-y-2 text-[var(--color-muted)]">
+                <div className="mt-2 space-y-2 border-t pt-2 text-xs text-[var(--color-muted)]">
                   <p>{formatLatency(run.latencyMs)}</p>
                   <p>{formatTokens(run.usage)}</p>
                   <p className="mono break-all">
@@ -118,7 +121,9 @@ export function ModelCell({
                   </button>
                 </div>
               ) : (
-                <p className="text-[var(--color-muted)]">无运行记录</p>
+                <p className="mt-2 border-t pt-2 text-[var(--color-muted)]">
+                  无运行记录
+                </p>
               )}
             </div>
           ) : null}

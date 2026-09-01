@@ -88,5 +88,6 @@ function describe(
     strategyOverrides: preview.strategyOverrides,
     changeSummary: preview.changeSummary,
     migration: preview.migration,
+    labRuntimeSummary: preview.labRuntimeSummary,
   };
 }

@@ -1,29 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { EnergyLevel } from "@/domain/common";
-import type { FewShotSample, FewShotSelectionTrace } from "@/domain/fewshot";
+import type { FewShotSample } from "@/domain/fewshot";
 import {
   type FewShotTextIssue,
   parseFewShotText,
   serializeFewShotSamples,
 } from "@/domain/fewshot-text";
-import type { SettingsData } from "@/domain/settings";
 import { useProfiles } from "@/components/app-shell/profile-context";
-import {
-  Collapsible,
-  ConfirmButton,
-  Field,
-  Notice,
-} from "@/components/ui/primitives";
+import { ConfirmButton, Notice } from "@/components/ui/primitives";
 import { api, errorMessage } from "@/lib/api-client";
-import {
-  ENERGY_LEVEL_LABELS,
-  FEW_SHOT_WORLDVIEW_LABELS,
-  labelOf,
-} from "@/lib/labels";
-
-const ENERGY_LEVELS: readonly EnergyLevel[] = ["E0", "E1", "E2", "E3"];
 
 interface BulkSaveSummary {
   created: number;
@@ -38,61 +24,22 @@ export function FewShotView() {
   const [text, setText] = useState("");
   const [summary, setSummary] = useState<BulkSaveSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [previewInput, setPreviewInput] = useState("");
-  const [previewLevel, setPreviewLevel] = useState<EnergyLevel>("E1");
-  const [preview, setPreview] = useState<FewShotSelectionTrace[] | null>(null);
-  const [injection, setInjection] = useState<
-    SettingsData["context"]["fewShot"] | null
-  >(null);
-  const [togglingInjection, setTogglingInjection] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeProfileId) return;
-    const query = `profileId=${encodeURIComponent(activeProfileId)}`;
     try {
-      const [loaded, settings] = await Promise.all([
-        api.get<FewShotSample[]>(`/api/fewshot?${query}`),
-        api.get<SettingsData>(`/api/settings?${query}`),
-      ]);
+      const loaded = await api.get<FewShotSample[]>(
+        `/api/fewshot?profileId=${encodeURIComponent(activeProfileId)}`,
+      );
       setItems(loaded);
       setText(serializeFewShotSamples(loaded));
-      setInjection(settings.context.fewShot);
       setError(null);
     } catch (caught) {
       setError(errorMessage(caught));
     }
   }, [activeProfileId]);
 
-  /** 只改这一个开关，其余设置先重新读一遍再写回，免得覆盖设置页刚存的改动。 */
-  const setInjectionEnabled = async (enabled: boolean): Promise<void> => {
-    if (!activeProfileId) return;
-    setTogglingInjection(true);
-    try {
-      const current = await api.get<SettingsData>(
-        `/api/settings?profileId=${encodeURIComponent(activeProfileId)}`,
-      );
-      const next: SettingsData = {
-        ...current,
-        context: {
-          ...current.context,
-          fewShot: { ...current.context.fewShot, enabled },
-        },
-      };
-      await api.put("/api/settings", {
-        profileId: activeProfileId,
-        settings: next,
-      });
-      setInjection(next.context.fewShot);
-      setError(null);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setTogglingInjection(false);
-    }
-  };
-
   useEffect(() => {
-    setPreview(null);
     setSummary(null);
     void load();
   }, [load]);
@@ -126,23 +73,6 @@ export function FewShotView() {
     }
   };
 
-  const runPreview = async (): Promise<void> => {
-    if (!activeProfileId || !previewInput.trim()) return;
-    try {
-      const result = await api.post<{ trace: FewShotSelectionTrace[] }>(
-        "/api/fewshot/preview-selection",
-        {
-          profileId: activeProfileId,
-          userMessage: previewInput,
-          energyLevel: previewLevel,
-        },
-      );
-      setPreview(result.trace);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
-  };
-
   const stats = useMemo(() => {
     const enabled = parsed.records.filter((record) => record.enabled);
     const worldview = enabled.filter((record) => record.worldview !== "none");
@@ -162,93 +92,15 @@ export function FewShotView() {
     <div className="space-y-4 pb-10">
       {error ? <Notice tone="error">{error}</Notice> : null}
 
-      <div className="card flex flex-wrap items-center gap-3 p-3">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={injection?.enabled ?? false}
-            disabled={injection === null || togglingInjection}
-            onChange={(event) =>
-              void setInjectionEnabled(event.target.checked)
-            }
-          />
-          向提示词注入 Few-shot 示例
-        </label>
-        <span className="text-xs text-[var(--color-muted)]">
-          {injection === null
-            ? "正在读设置…"
-            : injection.enabled
-              ? `每轮上限 E0 ${injection.maxPerLevel.E0} / E1 ${injection.maxPerLevel.E1} / E2 ${injection.maxPerLevel.E2} / E3 ${injection.maxPerLevel.E3} 条，相关度阈值 ${injection.minScore}`
-              : "关闭中：语料仍然保留，但任何一轮都不会注入示例，可用来做开关对照"}
-        </span>
-        <span className="text-xs text-[var(--color-muted)]">
-          改的是 <code>data/settings.json</code> 的{" "}
-          <code>context.fewShot.enabled</code>，其余参数在设置页的上下文编辑器里。
-        </span>
-      </div>
-
-      <Notice>
-        样本按当前这句话检索，每轮注入条数由设置里的能量档位决定。带世界观的样本每轮最多进一条，避免示例整批都是雨林联想。文本里已启用 {stats.enabled} 条，其中带世界观 {stats.worldview} 条（{stats.ratio}%）。
+      <Notice tone="warning">
+        这批语料当前不进提示词。原来的检索器按能量档位硬过滤，绝大多数轮次一条都选不出来，
+        已整体移除。语料本身保留为撰写素材，等 v1.1 的行为示例卡上线后重新接入并按新的检索规则生效。
       </Notice>
 
-      <Collapsible title="选择预览（只读，不写入任何数据）">
-        <div className="space-y-2">
-          <textarea
-            className="field min-h-16"
-            placeholder="输入一句话，查看哪些样本会被选中"
-            value={previewInput}
-            onChange={(event) => setPreviewInput(event.target.value)}
-          />
-          <div className="flex flex-wrap items-end gap-2">
-            <Field label="按哪个能量档位预览">
-              <select
-                className="field"
-                value={previewLevel}
-                onChange={(event) =>
-                  setPreviewLevel(event.target.value as EnergyLevel)
-                }
-              >
-                {ENERGY_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {labelOf(ENERGY_LEVEL_LABELS, level)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <button
-              type="button"
-              className="btn"
-              disabled={!previewInput.trim()}
-              onClick={() => void runPreview()}
-            >
-              预览选择
-            </button>
-            {dirty ? (
-              <span className="text-xs text-[var(--color-danger)]">
-                预览用的是已保存的内容，下面未保存的改动不算数。
-              </span>
-            ) : null}
-          </div>
-
-          {preview ? (
-            preview.length === 0 ? (
-              <p className="text-sm text-[var(--color-muted)]">
-                这个档案还没有样本。
-              </p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {preview.map((trace) => (
-                  <li key={trace.sampleId}>
-                    {trace.selected ? "入选" : "未入选"} · {trace.scene} ·{" "}
-                    {labelOf(FEW_SHOT_WORLDVIEW_LABELS, trace.worldview)} · 相关度{" "}
-                    {trace.score.toFixed(3)} · {trace.reason}
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : null}
-        </div>
-      </Collapsible>
+      <Notice>
+        文本里已启用 {stats.enabled} 条，其中带世界观 {stats.worldview} 条（
+        {stats.ratio}%）。
+      </Notice>
 
       <Notice>
         整份语料在下面一个框里编辑，保存时按 id 认回原来的样本。记录之间用单独一行{" "}

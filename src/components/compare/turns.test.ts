@@ -44,13 +44,6 @@ function run(overrides: Partial<RunSummary>): RunSummary {
       totalTokens: null,
       source: "unavailable",
     },
-    estimatedCost: {
-      amount: null,
-      currency: "USD",
-      isEstimate: true,
-      pricingLabel: null,
-      effectiveDate: null,
-    },
     finishReason: "completed",
     contextHash: "lane-a",
     sharedContextHash: "shared-1",

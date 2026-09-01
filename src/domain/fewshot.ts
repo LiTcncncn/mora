@@ -2,6 +2,11 @@ import { z } from "zod";
 import { energyLevelSchema, idSchema, isoDateTimeSchema } from "./common";
 
 /**
+ * 这批样本已不再参与运行时注入：原检索器无法稳定选出样本，整个模块已移除。
+ * 语料本体保留为撰写素材，由 §18.2 的 v1→v2 迁移转成行为示例卡后才重新生效。
+ */
+
+/**
  * 世界观级别：
  * - none 不含世界观，只示范口气与节奏
  * - L1 非人类体感，不点名雨林
@@ -54,13 +59,3 @@ export const fewShotDataSchema = z.object({
   items: z.array(fewShotSampleSchema),
 });
 export type FewShotData = z.infer<typeof fewShotDataSchema>;
-
-export const fewShotSelectionTraceSchema = z.object({
-  sampleId: idSchema,
-  scene: z.string(),
-  worldview: fewShotWorldviewSchema,
-  selected: z.boolean(),
-  score: z.number(),
-  reason: z.string(),
-});
-export type FewShotSelectionTrace = z.infer<typeof fewShotSelectionTraceSchema>;

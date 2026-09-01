@@ -5,7 +5,7 @@ export const contextSectionIdSchema = z.enum([
   "safety_baseline",
   "persona",
   "style",
-  "few_shot",
+  "turn_plan",
   "energy_policy",
   "memory",
   "history",
@@ -14,16 +14,12 @@ export const contextSectionIdSchema = z.enum([
 ]);
 export type ContextSectionId = z.infer<typeof contextSectionIdSchema>;
 
-/**
- * 安全底线永远第一，history 永远在 instructions 之后由 input 承载。
- * few_shot 排在 energy_policy 之前，让能量档位的长度约束能覆盖示例的长度。
- */
+/** 安全底线永远第一，history 永远在 instructions 之后由 input 承载。 */
 export const DEFAULT_SECTION_ORDER: readonly ContextSectionId[] = [
   "safety_baseline",
   "persona",
   "style",
-  "few_shot",
-  "energy_policy",
+  "turn_plan",
   "memory",
   "response_contract",
   "custom_experiment",
@@ -63,7 +59,6 @@ export const TEMPLATE_VARIABLE_WHITELIST = [
   "persona.renderedTraits",
   "energy.level",
   "energy.policy",
-  "fewshot.rendered",
   "memory.rendered",
   "history.rendered",
   "user.message",

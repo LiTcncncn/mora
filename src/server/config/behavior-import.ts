@@ -2,6 +2,7 @@ import "server-only";
 import {
   behaviorConfigV2Schema,
   type BehaviorConfigV2,
+  type LabRuntimeExport,
 } from "@/domain/behavior-config";
 import { reconcileStrategyPolicies } from "@/domain/strategy-policy";
 import { AppError } from "../api/errors";
@@ -55,6 +56,12 @@ export interface ImportPreview {
   migration: MigrationReport | null;
   /** 通过确认后要提交的配置，已应用自动禁用。 */
   candidate: BehaviorConfigV2;
+  /** 完整导出包附带的 Lab 运行时；提交时写入 Persona/Preset/Settings。 */
+  labRuntime: LabRuntimeExport | null;
+  labRuntimeSummary: {
+    personaCount: number;
+    promptPresetCount: number;
+  } | null;
 }
 
 export interface ChangeSummary {
@@ -106,6 +113,8 @@ export function prepareImport(
       ? detected.payload.configHash
       : null;
 
+  const labRuntime = extractLabRuntime(detected);
+
   return {
     kind: detected.generation === 1 ? "mora_behavior_config" : detected.kind,
     sourceGeneration: detected.generation,
@@ -125,6 +134,13 @@ export function prepareImport(
     changeSummary: summarizeChanges(current, withDisabled),
     migration,
     candidate: { ...withDisabled, configHash: recomputedConfigHash },
+    labRuntime,
+    labRuntimeSummary: labRuntime
+      ? {
+          personaCount: labRuntime.personas.length,
+          promptPresetCount: labRuntime.promptPresets.length,
+        }
+      : null,
   };
 }
 
@@ -203,7 +219,8 @@ function buildCandidate(
   }
 
   if (detected.kind === "mora_behavior_config") {
-    const { exportedAt: _exportedAt, ...body } = detected.payload;
+    const { exportedAt: _exportedAt, labRuntime: _labRuntime, ...body } =
+      detected.payload;
 
     return {
       // 导入后各 version 取「导入值」而不是 max（§13.6.4）：导入的语义是
@@ -296,4 +313,18 @@ function diffAssets<T extends { id: string }>(
     changed,
     unchanged,
   };
+}
+
+function extractLabRuntime(detected: DetectedFile): LabRuntimeExport | null {
+  if (detected.generation === 1) {
+    return {
+      settings: detected.bundle.settings,
+      personas: detected.bundle.personas,
+      promptPresets: detected.bundle.promptPresets,
+    };
+  }
+  if (detected.kind === "mora_behavior_config") {
+    return detected.payload.labRuntime ?? null;
+  }
+  return null;
 }

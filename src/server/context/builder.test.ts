@@ -5,24 +5,29 @@ import { AppError } from "@/server/api/errors";
 import { buildContext, type BuildContextInput } from "./builder";
 import {
   makeConversation,
-  makeFewShotSample,
   makeMemory,
   makeMessage,
+  seedBehaviorConfig,
   seedPersona,
   seedPromptPreset,
   seedSettings,
+  seedTurnPlan,
 } from "@/test/fixtures";
 
 function baseInput(overrides: Partial<BuildContextInput> = {}): BuildContextInput {
   const settings = seedSettings();
+  const behaviorConfig = seedBehaviorConfig();
+  const turnPlan = seedTurnPlan("今天好累");
   return {
     modelSlotId: "slot-kimi",
     userMessage: "今天好累",
     conversation: makeConversation(),
     persona: seedPersona(),
+    turnPlan,
+    behaviorConfig,
     energyResolution: {
-      level: "E1",
-      source: "rule_based",
+      level: turnPlan.energy,
+      source: "router",
       reason: "测试",
       signals: [],
     },
@@ -32,7 +37,6 @@ function baseInput(overrides: Partial<BuildContextInput> = {}): BuildContextInpu
     settings: {
       context: settings.context,
       memory: settings.memory,
-      energy: settings.energy,
     },
     ...overrides,
   };
@@ -52,15 +56,56 @@ describe("buildContext", () => {
   });
 
   it("安全底线永远排在第一位且内容来自服务端常量", () => {
+    const snapshot = buildContext(baseInput());
+
+    expect(snapshot.sections[0]?.id).toBe("safety_baseline");
+    expect(snapshot.sections[0]?.content).toBe(SAFETY_BASELINE);
+  });
+
+  it("预设里存了 safety_baseline 分区也不生效，内容与位置都不受影响", () => {
     const preset = seedPromptPreset();
-    // 即使有人把只读分区的模板改成别的内容，也不能生效。
-    preset.sections[0]!.template = "已被篡改";
+    preset.sections.unshift({
+      id: "safety_baseline",
+      enabled: true,
+      title: "假底线",
+      template: "已被篡改",
+      editable: true,
+    });
 
     const snapshot = buildContext(baseInput({ promptPreset: preset }));
 
     expect(snapshot.sections[0]?.id).toBe("safety_baseline");
     expect(snapshot.sections[0]?.content).toBe(SAFETY_BASELINE);
     expect(snapshot.renderedInstructions).not.toContain("已被篡改");
+    expect(snapshot.renderedInstructions).not.toContain("假底线");
+    // 不能出现两段底线。
+    expect(
+      snapshot.sections.filter((section) => section.id === "safety_baseline"),
+    ).toHaveLength(1);
+  });
+
+  it("预设完全不含 safety_baseline 分区时，安全底线仍被强制注入", () => {
+    const preset = seedPromptPreset();
+    preset.sections = preset.sections.filter(
+      (section) => section.id === "persona",
+    );
+
+    const snapshot = buildContext(baseInput({ promptPreset: preset }));
+
+    expect(snapshot.sections[0]?.id).toBe("safety_baseline");
+    expect(snapshot.renderedInstructions).toContain(SAFETY_BASELINE);
+  });
+
+  it("停用所有可编辑分区也无法去掉安全底线", () => {
+    const preset = seedPromptPreset();
+    preset.sections = preset.sections.map((section) => ({
+      ...section,
+      enabled: false,
+    }));
+
+    const snapshot = buildContext(baseInput({ promptPreset: preset }));
+
+    expect(snapshot.renderedInstructions).toContain(SAFETY_BASELINE);
   });
 
   it("当前用户输入始终完整出现在 renderedInput", () => {
@@ -106,6 +151,15 @@ describe("buildContext", () => {
     expect(openai.renderedInput).not.toContain("DeepSeek 的回复");
   });
 
+  it("v2 Turn Plan 分区替代旧 energy_policy", () => {
+    const snapshot = buildContext(baseInput());
+    const ids = snapshot.sections.map((section) => section.id);
+
+    expect(ids).toContain("turn_plan");
+    expect(ids).not.toContain("energy_policy");
+    expect(snapshot.renderedInstructions).toContain("【本轮回复计划】");
+  });
+
   it("超出预算时优先移除 Memory，但保留当前用户输入", () => {
     const memories = [
       makeMemory({ id: "m1", content: "记忆一".repeat(40) }),
@@ -119,7 +173,6 @@ describe("buildContext", () => {
         settings: {
           context: settings.context,
           memory: settings.memory,
-          energy: settings.energy,
         },
       }),
     );
@@ -131,7 +184,6 @@ describe("buildContext", () => {
         settings: {
           context: settings.context,
           memory: settings.memory,
-          energy: settings.energy,
         },
       }),
     );
@@ -150,71 +202,10 @@ describe("buildContext", () => {
           settings: {
             context: settings.context,
             memory: settings.memory,
-            energy: settings.energy,
           },
         }),
       ),
     ).toThrowError(AppError);
-  });
-
-  it("Few-shot 分区排在语气风格之后、能量策略之前", () => {
-    const snapshot = buildContext(
-      baseInput({ selectedFewShotSamples: [makeFewShotSample()] }),
-    );
-    const ids = snapshot.sections.map((section) => section.id);
-
-    expect(ids.indexOf("few_shot")).toBeGreaterThan(ids.indexOf("style"));
-    expect(ids.indexOf("few_shot")).toBeLessThan(ids.indexOf("energy_policy"));
-    expect(snapshot.renderedInstructions).toContain("躺着就躺着吧");
-    expect(snapshot.selectedFewShotIds).toEqual(["fs-1"]);
-  });
-
-  it("没有样本时整块跳过，不留下空的引导语", () => {
-    const snapshot = buildContext(baseInput({ selectedFewShotSamples: [] }));
-
-    expect(snapshot.sections.map((section) => section.id)).not.toContain(
-      "few_shot",
-    );
-    expect(snapshot.renderedInstructions).not.toContain("参考对话");
-  });
-
-  it("样本的 note 与 scene 不进入提示词", () => {
-    const snapshot = buildContext(
-      baseInput({
-        selectedFewShotSamples: [
-          makeFewShotSample({ note: "这条说明不该出现", scene: "内部场景标签" }),
-        ],
-      }),
-    );
-
-    expect(snapshot.renderedInstructions).not.toContain("这条说明不该出现");
-    expect(snapshot.renderedInstructions).not.toContain("内部场景标签");
-  });
-
-  it("超出预算时 Few-shot 排在历史之后被裁剪", () => {
-    const samples = [
-      makeFewShotSample({ id: "fs-1", reply: "示例回复一".repeat(30) }),
-      makeFewShotSample({ id: "fs-2", reply: "示例回复二".repeat(30) }),
-    ];
-    const settings = seedSettings();
-    const unconstrained = buildContext(
-      baseInput({ selectedFewShotSamples: samples }),
-    );
-
-    settings.context.maxTotalChars = unconstrained.charCount - 100;
-    const snapshot = buildContext(
-      baseInput({
-        selectedFewShotSamples: samples,
-        settings: {
-          context: settings.context,
-          memory: settings.memory,
-          energy: settings.energy,
-        },
-      }),
-    );
-
-    expect(snapshot.selectedFewShotIds.length).toBeLessThan(samples.length);
-    expect(snapshot.renderedInput).toContain("今天好累");
   });
 
   it("未知模板变量导致构建失败", () => {

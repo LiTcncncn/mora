@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-09-01T14:54:51.036Z",
+  "profileId": "profile-default",
+  "profileName": "默认测试档案",
+  "activePersonaId": "persona-6f1acd60-3173-4410-81c4-561814ecdbfa",
+  "activePresetId": "preset-785fae2d-49f1-425b-81c1-0fe8384a6f16",
+  "behaviorConfigHash": "00f91ddda130a5f0",
+  "files": [
+    "profiles.json",
+    "settings.json",
+    "personas.json",
+    "prompt-presets.json",
+    "behavior-config.json",
+    "conversations.json",
+    "memories.json",
+    "runs.json"
+  ]
+}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { energyLevelSchema } from "@/domain/common";
+import type { Conversation } from "@/domain/conversation";
 import {
   apiSuccess,
   handleRoute,
@@ -7,14 +8,12 @@ import {
   readJsonBody,
 } from "@/server/api/response";
 import { buildContext } from "@/server/context/builder";
-import { resolveEnergy } from "@/server/energy/resolver";
-import { selectFewShotSamples } from "@/server/fewshot/selector";
-import { selectMemories } from "@/server/memory/selector";
+import { prepareSharedTurnContext } from "@/server/orchestration/prepare-turn";
 import {
   conversationRepository,
-  fewShotRepository,
   memoryRepository,
   personaRepository,
+  profileRepository,
   promptPresetRepository,
   settingsRepository,
 } from "@/server/persistence/repositories";
@@ -25,13 +24,24 @@ export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   profileId: z.string().min(1),
-  conversationId: z.string().min(1),
+  conversationId: z.string().min(1).optional(),
   userMessage: z.string().min(1).max(8000),
   modelSlotId: z.string().min(1).optional(),
   energyOverride: energyLevelSchema.optional(),
 });
 
-/** 只预览，不创建 run，不更新 Memory 使用次数。 */
+function emptyConversation(profileId: string): Conversation {
+  const timestamp = new Date().toISOString();
+  return {
+    id: "conv-preview-empty",
+    profileId,
+    title: "预览（不带历史）",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    messages: [],
+  };
+}
+
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
     const body = parseWith(bodySchema, await readJsonBody(request));
@@ -46,36 +56,30 @@ export async function POST(request: Request): Promise<Response> {
       throw new AppError("VALIDATION_ERROR", "没有可用的模型槽位");
     }
 
-    const [persona, promptPreset, memories, fewShotSamples, conversation] =
+    const conversationId = body.conversationId;
+    const [profile, persona, promptPreset, memories, conversation] =
       await Promise.all([
+        profileRepository.requireProfile(body.profileId),
         personaRepository.get(body.profileId, settings.activePersonaId),
-        promptPresetRepository.get(
-          body.profileId,
-          settings.activePromptPresetId,
-        ),
+        promptPresetRepository.get(body.profileId, settings.activePromptPresetId),
         memoryRepository.list(body.profileId),
-        fewShotRepository.list(body.profileId),
-        conversationRepository.get(body.profileId, body.conversationId),
+        conversationId === undefined
+          ? Promise.resolve(emptyConversation(body.profileId))
+          : conversationRepository.get(body.profileId, conversationId),
       ]);
 
-    const energyResolution = await resolveEnergy({
+    const sharedTurn = await prepareSharedTurnContext({
+      profileId: body.profileId,
+      profileName: profile.name,
       userMessage: body.userMessage,
-      settings: settings.energy,
-      override: body.energyOverride,
-      timeoutMs:
-        settings.providers[settings.energy.llmClassifier.provider].transport
-          .timeoutMs,
-    });
-    const memorySelection = selectMemories({
+      conversation,
+      modelSlotId: slot.id,
+      settings: {
+        memory: settings.memory,
+        energy: settings.energy,
+      },
       memories,
-      userMessage: body.userMessage,
-      settings: settings.memory,
-    });
-    const fewShotSelection = selectFewShotSamples({
-      samples: fewShotSamples,
-      userMessage: body.userMessage,
-      energyLevel: energyResolution.level,
-      settings: settings.context.fewShot,
+      energyOverride: body.energyOverride,
     });
 
     const snapshot = buildContext({
@@ -83,23 +87,30 @@ export async function POST(request: Request): Promise<Response> {
       userMessage: body.userMessage,
       conversation,
       persona,
-      energyResolution,
-      selectedMemories: memorySelection.selected,
-      memoryTrace: memorySelection.trace,
-      selectedFewShotSamples: fewShotSelection.selected,
-      fewShotTrace: fewShotSelection.trace,
+      turnPlan: sharedTurn.turnPlan,
+      behaviorConfig: sharedTurn.behaviorConfig,
+      energyResolution: sharedTurn.energyResolution,
+      selectedMemories: sharedTurn.selectedMemories,
+      memoryTrace: sharedTurn.memoryTrace,
       promptPreset,
       settings: {
         context: settings.context,
         memory: settings.memory,
-        energy: settings.energy,
       },
     });
 
     return apiSuccess({
       slot: { id: slot.id, label: slot.label },
-      energy: energyResolution,
-      snapshot,
+      energy: sharedTurn.energyResolution,
+      behaviorTrace: sharedTurn.behaviorTrace,
+      turnPlan: sharedTurn.turnPlan,
+      routing: sharedTurn.routing,
+      safety: sharedTurn.safety,
+      urgentReply: sharedTurn.urgentReply,
+      snapshot: {
+        ...snapshot,
+        turnRoutingSource: sharedTurn.routing.source,
+      },
     });
   });
 }

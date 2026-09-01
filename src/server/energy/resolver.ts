@@ -172,7 +172,6 @@ export function renderEnergyPolicy(
     policy.toneInstruction,
     policy.responseInstruction,
     `回复长度目标：不超过约 ${policy.targetMaxChars} 个字符、${policy.targetMaxSentences} 句。`,
-    `本轮最多提问 ${policy.maxQuestions} 个。`,
     policy.allowAdvice
       ? `本轮最多提出 ${policy.maxSuggestedActions} 个非常小的行动建议，并且允许对方拒绝。`
       : "本轮不要提出任何行动建议或任务。",

@@ -118,9 +118,13 @@ export class JsonStore<T> {
 
       const validation = this.dataSchema.safeParse(next);
       if (!validation.success) {
+        const detail = validation.error.issues
+          .slice(0, 3)
+          .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+          .join("; ");
         throw new AppError(
           "DATA_VALIDATION_ERROR",
-          `写入 ${this.name}.json 前的数据校验失败，已保留原文件`,
+          `写入 ${this.name}.json 前的数据校验失败，已保留原文件${detail ? `（${detail}）` : ""}`,
         );
       }
 

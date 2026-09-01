@@ -3,6 +3,7 @@ import {
   behaviorConfigV2Schema,
   buildDefaultBehaviorConfig,
   type BehaviorConfigV2,
+  type LabRuntimeExport,
 } from "@/domain/behavior-config";
 import type { BehaviorExampleCard } from "@/domain/behavior-example";
 import type { WorldviewCanonFact, WorldviewSeed } from "@/domain/worldview-v2";
@@ -223,7 +224,8 @@ describe("configHash", () => {
   it("固定输入产出固定 hash", () => {
     // 写死期望值以防实现漂移（与 §9.5.4 的 FNV-1a 同样处理）。
     // 改动 §13.6.3 的计算方式时，这条断言必须连同理由一起更新。
-    expect(computeConfigHash(baseConfig())).toBe("791fcedc61f751d8");
+    // 默认 Safety 规则表与 urgent 占位文案纳入 hash。
+    expect(computeConfigHash(baseConfig())).toBe("ffc1e29e3978ea7d");
   });
 
   it("hash 长度固定为 16 个十六进制字符", () => {
@@ -811,6 +813,68 @@ describe("导出文件形态", () => {
 
     expect(name).toBe("mora-worldview-a-b-c-d-2026-08-31-01234567.json");
     expect(name).not.toMatch(/[/\\:\s]/);
+  });
+});
+
+describe("labRuntime 完整导出", () => {
+  it("buildConfigExport 附带 labRuntime 时写入导出文件", () => {
+    const runtime = {
+      settings: v1Settings(),
+      personas: [],
+      promptPresets: [],
+    };
+    const parsed = JSON.parse(
+      serializeExport(buildConfigExport(baseConfig(), EXPORTED_AT, runtime)),
+    ) as Record<string, unknown>;
+
+    expect(parsed).toHaveProperty("labRuntime");
+    const exported = parsed.labRuntime as LabRuntimeExport;
+    expect(exported.personas).toEqual([]);
+    expect(exported.promptPresets).toEqual([]);
+    expect(exported.settings.activePersonaId).toBe("persona-default");
+  });
+
+  it("prepareImport 从 v2 完整包提取 labRuntime 与摘要", () => {
+    const runtime = {
+      settings: v1Settings(),
+      personas: [],
+      promptPresets: [],
+    };
+    const file = serializeExport(
+      buildConfigExport(baseConfig(), EXPORTED_AT, runtime),
+    );
+    const preview = prepareImport(file, baseConfig());
+
+    expect(preview.labRuntime).not.toBeNull();
+    expect(preview.labRuntime?.personas).toEqual([]);
+    expect(preview.labRuntime?.promptPresets).toEqual([]);
+    expect(preview.labRuntimeSummary).toEqual({
+      personaCount: 0,
+      promptPresetCount: 0,
+    });
+  });
+
+  it("labRuntime 不参与 configHash", () => {
+    const runtime = {
+      settings: v1Settings(),
+      personas: [],
+      promptPresets: [],
+    };
+    const withRuntime = serializeExport(
+      buildConfigExport(baseConfig(), EXPORTED_AT, runtime),
+    );
+    const withoutRuntime = serializeExport(
+      buildConfigExport(baseConfig(), EXPORTED_AT),
+    );
+
+    const hashWith = (
+      JSON.parse(withRuntime) as { configHash: string }
+    ).configHash;
+    const hashWithout = (
+      JSON.parse(withoutRuntime) as { configHash: string }
+    ).configHash;
+
+    expect(hashWith).toBe(hashWithout);
   });
 });
 

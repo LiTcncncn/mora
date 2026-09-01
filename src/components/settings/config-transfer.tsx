@@ -10,7 +10,10 @@ import { api, errorMessage } from "@/lib/api-client";
  */
 
 const EXPORT_KINDS = [
-  { kind: "mora_behavior_config", label: "完整配置（含三类内容资产）" },
+  {
+    kind: "mora_behavior_config",
+    label: "完整配置（v2 行为 + 世界观/示例资产 + Persona/Preset/Settings）",
+  },
   { kind: "mora_worldview_library", label: "世界观素材库（事实 + 种子）" },
   { kind: "mora_example_library", label: "行为示例卡库" },
 ] as const;
@@ -47,6 +50,10 @@ interface ImportPreview {
     exampleCardCandidates: number;
     seedCandidatesPending: Array<{ sourceSampleId: string; scene: string }>;
     notes: string[];
+  } | null;
+  labRuntimeSummary: {
+    personaCount: number;
+    promptPresetCount: number;
   } | null;
 }
 
@@ -195,9 +202,17 @@ export function ConfigTransfer({
                 {item.label}
               </a>
             ))}
+            <a
+              className="btn inline-flex"
+              href={`/api/config/export?profileId=${encodeURIComponent(profileId)}`}
+              download
+            >
+              v1 运行时快照（回滚用）
+            </a>
           </div>
           <p className="text-xs text-[var(--color-muted)]">
-            文件名含 configHash 前 8 位，可在不打开文件的情况下判断两份导出是否相同。
+            v2 导出文件名含 configHash 前 8 位。v1 快照仅含 Settings / Persona / Preset，
+            供 D41 回滚，不含 v2 行为配置。
           </p>
         </section>
 
@@ -355,6 +370,14 @@ function ImportPreviewCard({
             .map((entry) => `${entry.mode}.${entry.field}`)
             .join("、")}
         </p>
+      ) : null}
+
+      {preview.labRuntimeSummary ? (
+        <Notice>
+          同时导入 Lab 运行时：{preview.labRuntimeSummary.personaCount} 条
+          Persona、{preview.labRuntimeSummary.promptPresetCount} 条 Prompt
+          Preset，以及 Settings（会覆盖当前档案的槽位与 Context 等设置）。
+        </Notice>
       ) : null}
 
       {preview.migration ? (

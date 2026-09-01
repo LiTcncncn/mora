@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { BehaviorTrace } from "@/domain/behavior-trace";
 import type { RunRecord } from "@/domain/run";
 import { api, errorMessage } from "@/lib/api-client";
 import {
@@ -12,6 +13,17 @@ import {
 import {
   ENERGY_LEVEL_LABELS,
   ENERGY_SOURCE_LABELS,
+  MAJOR_EVENT_TYPE_LABELS,
+  QUESTION_PREFERENCE_LABELS,
+  REQUEST_FLAG_SOURCE_LABELS,
+  RESPONSE_MODE_LABELS,
+  ROUTING_SOURCE_LABELS,
+  SAFETY_LEVEL_LABELS,
+  SAFETY_ROUTE_LABELS,
+  WORLDVIEW_MODE_LABELS,
+  WORLDVIEW_RELATION_LABELS,
+  WORLDVIEW_DROP_REASON_LABELS,
+  SCHEDULER_BRANCH_LABELS,
   labelOf,
   PARAMETER_STATUS_LABELS,
   PROVIDER_LABELS,
@@ -85,6 +97,7 @@ export function RunInspector({
 
 function RunDetailBody({ detail }: { detail: RunDetail }) {
   const { run } = detail;
+  const trace = run.behaviorTrace;
 
   return (
     <>
@@ -97,23 +110,27 @@ function RunDetailBody({ detail }: { detail: RunDetail }) {
           value={`${labelOf(PROVIDER_LABELS, run.provider)} · ${run.modelId}`}
         />
         <Item label="开始时间" value={formatDateTime(run.startedAt)} />
-        <Item label="延迟" value={formatLatency(run.latencyMs)} />
+        <Item label="主模型延迟" value={formatLatency(run.latencyMs)} />
+        {trace ? (
+          <Item label="Router 延迟" value={formatLatency(trace.router.latencyMs)} />
+        ) : null}
         <Item label="token 词元用量" value={formatTokens(run.usage)} />
         <Item
           label="结束原因"
           value={run.finishReason ? FINISH_REASON_TEXT[run.finishReason] ?? run.finishReason : "—"}
         />
-        <Item
-          label="共享 Context hash 上下文指纹"
-          value={run.sharedContextHash}
-          mono
-        />
-        <Item
-          label="本槽位 Context hash 上下文指纹"
-          value={run.contextHash}
-          mono
-        />
+        {trace ? (
+          <Item label="行为配置 hash" value={trace.behaviorConfigHash} mono />
+        ) : null}
+        <Item label="共享 Context hash" value={run.sharedContextHash} mono />
+        <Item label="本槽位 Context hash" value={run.contextHash} mono />
       </dl>
+
+      {trace?.safety.urgentPlaceholderUsed ? (
+        <Notice tone="error">
+          本轮为 Safety urgent 占位回复，未调用主模型陪聊。
+        </Notice>
+      ) : null}
 
       {run.error ? (
         <Notice tone="error">
@@ -121,8 +138,14 @@ function RunDetailBody({ detail }: { detail: RunDetail }) {
         </Notice>
       ) : null}
 
+      {trace ? <SafetyTraceSection trace={trace} /> : null}
+      {trace ? <RoutingTraceSection trace={trace} /> : null}
+      {trace ? <TurnPlanTraceSection trace={trace} /> : null}
+      {trace ? <WorldviewTraceSection trace={trace} /> : null}
+      {trace ? <ExampleRetrievalTraceSection trace={trace} /> : null}
+
       <Collapsible
-        title={`Energy 能量档位判定：${labelOf(
+        title={`Energy 能量档位：${labelOf(
           ENERGY_LEVEL_LABELS,
           run.contextSnapshot.energy.level,
         )}`}
@@ -136,7 +159,7 @@ function RunDetailBody({ detail }: { detail: RunDetail }) {
       </Collapsible>
 
       {run.policyDeviation ? (
-        <Collapsible title="Energy Policy 低电量策略偏差观察（不影响模型原文）">
+        <Collapsible title="Turn Plan 偏差观察（不影响模型原文）">
           <ul className="space-y-1 text-sm">
             <li>
               字符数 {run.policyDeviation.actualChars} / 目标 ≤{" "}
@@ -241,6 +264,175 @@ function RunDetailBody({ detail }: { detail: RunDetail }) {
         </Collapsible>
       ) : null}
     </>
+  );
+}
+
+function SafetyTraceSection({ trace }: { trace: BehaviorTrace }) {
+  const { safety } = trace;
+  return (
+    <Collapsible title="Safety 安全判定" defaultOpen>
+      <ul className="space-y-1 text-sm">
+        <li>级别：{labelOf(SAFETY_LEVEL_LABELS, safety.level)}</li>
+        <li>路由：{labelOf(SAFETY_ROUTE_LABELS, safety.route)}</li>
+        <li>耗时：{safety.latencyMs} ms</li>
+        <li>占位回复：{safety.urgentPlaceholderUsed ? "是" : "否"}</li>
+        <li>
+          命中规则：
+          {safety.matchedRuleIds.length > 0 ? safety.matchedRuleIds.join("、") : "无"}
+        </li>
+      </ul>
+    </Collapsible>
+  );
+}
+
+function RoutingTraceSection({ trace }: { trace: BehaviorTrace }) {
+  const { routing, router } = trace;
+  return (
+    <Collapsible title="Turn Routing 轻量路由" defaultOpen>
+      <ul className="space-y-2 text-sm">
+        <li>
+          来源：{labelOf(ROUTING_SOURCE_LABELS, routing.source)} · 总置信度{" "}
+          {routing.overallConfidence.toFixed(2)}
+        </li>
+        <li>
+          Router：{labelOf(PROVIDER_LABELS, router.provider)} / {router.modelId} ·{" "}
+          {router.latencyMs} ms
+          {router.retried ? " · 已重试" : ""}
+        </li>
+        <li>
+          Energy {routing.energy.level}（{routing.energy.confidence.toFixed(2)}）
+          {routing.energy.evidence.length > 0
+            ? ` · ${routing.energy.evidence.join("；")}`
+            : ""}
+        </li>
+        <li>
+          策略：{labelOf(RESPONSE_MODE_LABELS, routing.responseMode.value)}（
+          {routing.responseMode.confidence.toFixed(2)}）
+        </li>
+        <li>
+          提问偏好：
+          {labelOf(QUESTION_PREFERENCE_LABELS, routing.questionPreference.value)}
+        </li>
+        <li>
+          世界观关系：
+          {labelOf(WORLDVIEW_RELATION_LABELS, routing.worldviewRelation.level)}
+        </li>
+        <li>
+          重大事件：{routing.majorEvent.matched ? "命中" : "未命中"}
+        </li>
+        <li>
+          requestFlags：详细回答=
+          {routing.requestFlags.wantsDetailedAnswer ? "是" : "否"}（
+          {labelOf(REQUEST_FLAG_SOURCE_LABELS, routing.requestFlags.source)}）
+        </li>
+      </ul>
+    </Collapsible>
+  );
+}
+
+function TurnPlanTraceSection({ trace }: { trace: BehaviorTrace }) {
+  const { turnPlan, compileNotes } = trace;
+  const budget = turnPlan.responseBudget;
+  return (
+    <Collapsible title="Compiled Turn Plan 编译结果" defaultOpen>
+      <ul className="space-y-1 text-sm">
+        <li>
+          策略 {labelOf(RESPONSE_MODE_LABELS, turnPlan.responseMode)} · Energy{" "}
+          {turnPlan.energy}
+        </li>
+        <li>
+          篇幅 {budget.targetMinChars}–{budget.targetMaxChars} 字 · {budget.maxSentences}{" "}
+          句 · 问题 {budget.maxQuestions} · 动作 {budget.maxActions}
+        </li>
+        <li>
+          世界观 {labelOf(WORLDVIEW_MODE_LABELS, turnPlan.worldview.mode)}
+        </li>
+        {compileNotes.length > 0 ? (
+          <li className="text-[var(--color-muted)]">
+            编译备注：{compileNotes.join("；")}
+          </li>
+        ) : null}
+      </ul>
+    </Collapsible>
+  );
+}
+
+function WorldviewTraceSection({ trace }: { trace: BehaviorTrace }) {
+  const { worldview } = trace;
+  const scheduledMismatch =
+    worldview.worldviewScheduled && !worldview.worldviewInjected;
+
+  return (
+    <Collapsible title="Worldview 世界观调度" defaultOpen={scheduledMismatch}>
+      {scheduledMismatch ? (
+        <Notice tone="error">
+          本轮已调度世界观但未注入 Prompt（
+          {worldview.worldviewDropReason
+            ? labelOf(WORLDVIEW_DROP_REASON_LABELS, worldview.worldviewDropReason)
+            : "原因未记录"}
+          ）。
+        </Notice>
+      ) : null}
+      <ul className="space-y-1 text-sm">
+        <li>
+          关系：{labelOf(WORLDVIEW_RELATION_LABELS, worldview.relation)} · 合格轮：
+          {worldview.eligibleTurn ? "是" : "否"}
+          {worldview.eligibleExcludeReason
+            ? `（${worldview.eligibleExcludeReason}）`
+            : ""}
+        </li>
+        <li>
+          调度：{worldview.worldviewScheduled ? "已调度" : "未调度"} · 注入：
+          {worldview.worldviewInjected ? "是" : "否"} · 最终{" "}
+          {labelOf(WORLDVIEW_MODE_LABELS, worldview.finalMode)}
+        </li>
+        <li>
+          credit {worldview.creditBefore.toFixed(2)} →{" "}
+          {worldview.creditAfter.toFixed(2)} · rollingNeed{" "}
+          {worldview.rollingNeed.toFixed(2)} · 分支{" "}
+          {worldview.branch
+            ? labelOf(SCHEDULER_BRANCH_LABELS, worldview.branch)
+            : "—"}
+        </li>
+        <li>
+          种子候选：第一段 {worldview.stage1CandidateCount} · 第二段{" "}
+          {worldview.stage2CandidateCount}
+          {worldview.seedId ? ` · 选中 ${worldview.selectedSeedTitle ?? worldview.seedId}` : ""}
+        </li>
+        {worldview.canonFactIds.length > 0 ? (
+          <li>Canon：{worldview.canonFactIds.join("、")}</li>
+        ) : null}
+      </ul>
+    </Collapsible>
+  );
+}
+
+function ExampleRetrievalTraceSection({ trace }: { trace: BehaviorTrace }) {
+  const { exampleRetrieval } = trace;
+  return (
+    <Collapsible title="Example Retrieval 行为示例">
+      <ul className="space-y-1 text-sm">
+        <li>
+          检索：{exampleRetrieval.enabled ? "开启" : "关闭"} · 候选{" "}
+          {exampleRetrieval.candidateCount} · 阈值{" "}
+          {exampleRetrieval.minScore.toFixed(2)}
+        </li>
+        <li>
+          选中：
+          {exampleRetrieval.selectedExampleName ??
+            exampleRetrieval.selectedExampleId ??
+            "无"}
+          {exampleRetrieval.topScore !== null
+            ? `（${exampleRetrieval.topScore.toFixed(2)}）`
+            : ""}
+        </li>
+        {exampleRetrieval.rejectReason ? (
+          <li className="text-[var(--color-muted)]">
+            未选原因：{exampleRetrieval.rejectReason}
+          </li>
+        ) : null}
+      </ul>
+    </Collapsible>
   );
 }
 

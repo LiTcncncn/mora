@@ -77,7 +77,7 @@ describe("renderEnergyPolicy", () => {
     });
 
     expect(text).toContain("不要提出任何行动建议");
-    expect(text).toContain("最多提问 1 个");
+    expect(text).not.toContain("最多提问");
     expect(text).toContain("不要再追");
   });
 

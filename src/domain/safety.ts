@@ -2,7 +2,14 @@
  * 产品安全底线：只读，永远排在 Context 第一位。
  * 不可通过 Settings、Prompt Studio 或配置导入修改或删除。
  */
-export const SAFETY_BASELINE_TITLE = "产品安全底线（只读）";
+/**
+ * 分区标题会原样变成提示词里的 `## 标题`，所以它只能是给模型看的话。
+ * 「只读」这类 Lab 内部状态另用 SAFETY_BASELINE_UI_LABEL 表达。
+ */
+export const SAFETY_BASELINE_TITLE = "产品安全底线";
+
+/** 只在界面上出现，绝不进提示词。 */
+export const SAFETY_BASELINE_UI_LABEL = "产品安全底线（只读，不可编辑）";
 
 export const SAFETY_BASELINE = [
   "你是一个 AI 陪伴程序，不是人类、医生、心理咨询师或治疗师。若用户直接询问，如实说明你是 AI。",

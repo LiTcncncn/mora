@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ENERGY_LEVELS, type EnergyLevel, type ProviderId } from "@/domain/common";
 import { MEMORY_TYPES } from "@/domain/memory";
+import { DEFAULT_SECTION_ORDER } from "@/domain/prompt";
 import type { GenerationSettings, ModelSlot, SettingsData } from "@/domain/settings";
 import { useProfiles } from "@/components/app-shell/profile-context";
 import {
@@ -20,8 +21,10 @@ import {
   MEMORY_WEIGHT_LABELS,
   PROVIDER_LABELS,
   REASONING_EFFORT_LABELS,
+  CONTEXT_SECTION_LABELS,
 } from "@/lib/labels";
 import { ProfileManager } from "./profile-manager";
+import { BehaviorConfigEditor } from "./behavior-config-editor";
 import { ConfigTransfer } from "./config-transfer";
 
 const PROVIDERS: ProviderId[] = ["kimi", "deepseek"];
@@ -82,6 +85,18 @@ export function SettingsView() {
 
       <ProfileManager />
 
+      <Notice>
+        Compare 与预览已接入行为配置 v2：每轮会先跑 Safety → Router → Turn Plan，再组装提示词。
+        下方 v1 Settings 仍管模型槽位、供应商、Memory 检索与 Context 预算；Energy 档位判定来自 v2 Router（可用手动 override）。
+      </Notice>
+
+      <Collapsible title="行为配置 v2（Router / Energy / 世界观 / 示例卡）" defaultOpen>
+        <BehaviorConfigEditor
+          profileId={activeProfileId}
+          onSaved={() => void load(activeProfileId)}
+        />
+      </Collapsible>
+
       <ConfigTransfer
         profileId={activeProfileId}
         onImported={() => void load(activeProfileId)}
@@ -113,7 +128,10 @@ export function SettingsView() {
         </div>
       </Collapsible>
 
-      <Collapsible title="Energy 能量档位与低电量策略">
+      <Collapsible title="Energy 手动 override（Compare 可选覆盖 Router 档位）">
+        <Notice>
+          四档字数与策略编译读 v2「Energy v2 四档预算」。此处仅保留手动 override 开关与 v1 分类器设置（供对照/回滚）。
+        </Notice>
         <EnergyEditor settings={settings} onChange={patch} />
       </Collapsible>
 
@@ -126,7 +144,11 @@ export function SettingsView() {
       </Collapsible>
 
       <Collapsible title="日志与容量">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-3">
+          <Notice>
+            上下文快照、设置快照与标准化响应一律无条件保存，没有开关：Lab
+            的调试能力建立在每轮都能回看当时发生了什么之上。
+          </Notice>
           <Field
             label="每个档案保留的 run 运行记录上限"
             hint="超限时删除该档案最旧的记录。"
@@ -141,21 +163,6 @@ export function SettingsView() {
                   logging: {
                     ...current.logging,
                     maxRuns: Number(event.target.value),
-                  },
-                }))
-              }
-            />
-          </Field>
-          <Field label="保存原始供应商响应" hint="默认关闭，避免本地文件迅速膨胀。">
-            <input
-              type="checkbox"
-              checked={settings.logging.saveRawProviderResponse}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  logging: {
-                    ...current.logging,
-                    saveRawProviderResponse: event.target.checked,
                   },
                 }))
               }
@@ -614,7 +621,49 @@ function EnergyEditor({
             }
           />
         </Field>
+        <Field
+          label="疲惫标点权重"
+          hint="省略号、句末缺标点这类信号往低档推的力度，0 到 1。"
+        >
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            className="field"
+            value={energy.ruleBased.exhaustionPunctuationWeight}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                energy: {
+                  ...current.energy,
+                  ruleBased: {
+                    ...current.energy.ruleBased,
+                    exhaustionPunctuationWeight: Number(event.target.value),
+                  },
+                },
+              }))
+            }
+          />
+        </Field>
       </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={energy.allowPerMessageOverride}
+          onChange={(event) =>
+            onChange((current) => ({
+              ...current,
+              energy: {
+                ...current.energy,
+                allowPerMessageOverride: event.target.checked,
+              },
+            }))
+          }
+        />
+        允许在 Compare 页为单轮手动指定档位
+      </label>
 
       {energy.mode === "llm" ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -730,16 +779,6 @@ function EnergyEditor({
                     setPolicy(level, {
                       targetMaxSentences: Number(event.target.value),
                     })
-                  }
-                />
-              </Field>
-              <Field label="最多提问数">
-                <input
-                  type="number"
-                  className="field"
-                  value={policy.maxQuestions}
-                  onChange={(event) =>
-                    setPolicy(level, { maxQuestions: Number(event.target.value) })
                   }
                 />
               </Field>
@@ -980,16 +1019,19 @@ function ContextEditor({
     }));
   };
 
-  const setFewShot = (
-    next: Partial<SettingsData["context"]["fewShot"]>,
-  ): void => {
-    onChange((current) => ({
-      ...current,
-      context: {
-        ...current.context,
-        fewShot: { ...current.context.fewShot, ...next },
-      },
-    }));
+  // safety_baseline 由服务端强制置顶，不参与排序。未出现在已存顺序里的分区
+  // 会被 builder 追加到末尾，这里补齐成全集，免得它们在界面上无法调整。
+  const orderable = [
+    ...new Set([...context.sectionOrder, ...DEFAULT_SECTION_ORDER]),
+  ].filter((id) => id !== "safety_baseline");
+
+  const moveSection = (index: number, delta: number): void => {
+    const target = index + delta;
+    if (target < 0 || target >= orderable.length) return;
+    const next = [...orderable];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved!);
+    setContext({ sectionOrder: ["safety_baseline", ...next] });
   };
 
   return (
@@ -1070,87 +1112,45 @@ function ContextEditor({
         </label>
       </div>
 
-      <div className="space-y-3 border-t pt-3">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={context.fewShot.enabled}
-            onChange={(event) =>
-              setFewShot({ enabled: event.target.checked })
-            }
-          />
-          启用 Few-shot 示例注入
-        </label>
+      {context.customExperimentBlockEnabled ? (
+        <Notice>
+          这个开关只是允许注入。分区本身还要在 Studio 的 Prompt
+          预设里启用并写好内容，两处都打开才会真正进入上下文。
+        </Notice>
+      ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-4">
-          {ENERGY_LEVELS.map((level) => (
-            <Field
-              key={level}
-              label={`${labelOf(ENERGY_LEVEL_LABELS, level)} 注入条数`}
-            >
-              <input
-                type="number"
-                min={0}
-                max={10}
-                className="field"
-                value={context.fewShot.maxPerLevel[level]}
-                onChange={(event) =>
-                  setFewShot({
-                    maxPerLevel: {
-                      ...context.fewShot.maxPerLevel,
-                      [level]: Number(event.target.value),
-                    },
-                  })
-                }
-              />
-            </Field>
+      <div className="space-y-2 border-t pt-3">
+        <SectionTitle>分区顺序</SectionTitle>
+        <p className="text-xs text-[var(--color-muted)]">
+          决定各分区在 instructions 里的先后。安全底线永远置顶，不参与排序；
+          history 由 input 承载，排到哪里都在最后。
+        </p>
+        <ol className="space-y-1">
+          {orderable.map((id, index) => (
+            <li key={id} className="flex items-center gap-2 text-sm">
+              <span className="w-6 text-[var(--color-muted)]">{index + 1}</span>
+              <span className="mono flex-1">
+                {labelOf(CONTEXT_SECTION_LABELS, id)}
+              </span>
+              <button
+                type="button"
+                className="btn"
+                disabled={index === 0}
+                onClick={() => moveSection(index, -1)}
+              >
+                上移
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={index === orderable.length - 1}
+                onClick={() => moveSection(index, 1)}
+              >
+                下移
+              </button>
+            </li>
           ))}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field
-            label="每轮带世界观的示例上限"
-            hint="防止选中的示例整批都是雨林联想，把模型带成每句都要联想。"
-          >
-            <input
-              type="number"
-              min={0}
-              max={5}
-              className="field"
-              value={context.fewShot.maxWorldviewPerTurn}
-              onChange={(event) =>
-                setFewShot({ maxWorldviewPerTurn: Number(event.target.value) })
-              }
-            />
-          </Field>
-          <Field label="示例字符预算">
-            <input
-              type="number"
-              min={0}
-              className="field"
-              value={context.fewShot.maxChars}
-              onChange={(event) =>
-                setFewShot({ maxChars: Number(event.target.value) })
-              }
-            />
-          </Field>
-          <Field
-            label="相关度下限"
-            hint="低于这个分数的样本不注入。宁可这轮不给示例，也不要给一条示范了别的行为的示例。"
-          >
-            <input
-              type="number"
-              min={0}
-              max={5}
-              step={0.05}
-              className="field"
-              value={context.fewShot.minScore}
-              onChange={(event) =>
-                setFewShot({ minScore: Number(event.target.value) })
-              }
-            />
-          </Field>
-        </div>
+        </ol>
       </div>
     </div>
   );

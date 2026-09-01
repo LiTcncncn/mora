@@ -5,10 +5,9 @@ export const personaSchema = z.object({
   id: idSchema,
   profileId: idSchema,
   name: z.string().min(1).max(80),
+  /** 只给人看的备注，不进提示词；用来在 Studio 里说明这版人格想试什么。 */
   description: z.string().max(500),
-  enabled: z.boolean(),
   corePrompt: z.string().min(1).max(8000),
-  language: z.literal("zh-CN"),
   traits: z.object({
     warmth: z.number().min(0).max(1),
     humor: z.number().min(0).max(1),
@@ -19,7 +18,6 @@ export const personaSchema = z.object({
   style: z.object({
     defaultReplyLength: z.enum(["very_short", "short", "medium", "long"]),
     emojiMode: z.enum(["none", "rare", "light"]),
-    questionFrequency: z.enum(["low", "medium", "high"]),
     avoidPatterns: z.array(z.string().min(1).max(200)).max(50),
     preferredPatterns: z.array(z.string().min(1).max(200)).max(50),
   }),

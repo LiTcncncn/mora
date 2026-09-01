@@ -28,14 +28,6 @@
                 "timeoutMs": 60000,
                 "maxRetries": 1,
                 "stream": false
-              },
-              "pricing": {
-                "currency": "USD",
-                "inputPerMillion": null,
-                "cachedInputPerMillion": null,
-                "outputPerMillion": null,
-                "label": "未配置",
-                "effectiveDate": null
               }
             },
             "kimi": {
@@ -56,14 +48,6 @@
                 "timeoutMs": 60000,
                 "maxRetries": 1,
                 "stream": false
-              },
-              "pricing": {
-                "currency": "USD",
-                "inputPerMillion": null,
-                "cachedInputPerMillion": null,
-                "outputPerMillion": null,
-                "label": "未配置",
-                "effectiveDate": null
               }
             }
           },
@@ -109,8 +93,6 @@
                 "maxQuestions": 1,
                 "maxSuggestedActions": 0,
                 "allowAdvice": false,
-                "validationWeight": 1,
-                "actionWeight": 0,
                 "toneInstruction": "轻、口语、不着急。把这句接住并说完整，不要只点个头。",
                 "responseInstruction": "只做承接和陪伴，不要建议任何行动，不要分析。可以有一个很轻、好答的问句，方便对方接下去；对方不接或说不想理，就停，不要再追。也可以不问。禁止用「愿意说的时候我听着」「不想说也没关系」把话挡回去。"
               },
@@ -120,8 +102,6 @@
                 "maxQuestions": 1,
                 "maxSuggestedActions": 1,
                 "allowAdvice": true,
-                "validationWeight": 0.8,
-                "actionWeight": 0.2,
                 "toneInstruction": "温和、把话说完整，不着急。",
                 "responseInstruction": "先回应具体处境，通常三到五句。可以轻问一句，对方不答不强求。明确要办法时才给一个很小的动作，不要同时又问又建议。"
               },
@@ -131,8 +111,6 @@
                 "maxQuestions": 1,
                 "maxSuggestedActions": 1,
                 "allowAdvice": true,
-                "validationWeight": 0.6,
-                "actionWeight": 0.4,
                 "toneInstruction": "温和，可以稍微展开一点。",
                 "responseInstruction": "沿着对方最在意的部分把话说完整，可轻问一句，不答就停。明确要办法时，一起找一个具体小步骤。口语、不列清单。"
               },
@@ -142,8 +120,6 @@
                 "maxQuestions": 2,
                 "maxSuggestedActions": 2,
                 "allowAdvice": true,
-                "validationWeight": 0.4,
-                "actionWeight": 0.6,
                 "toneInstruction": "自然、放松，可以聊得更完整。",
                 "responseInstruction": "可沿当前话题继续聊，或在对方明确需要时一起想办法。通常问一句，持续展开时最多两句。不说教、不堆建议。对方不想接问句时不要追。"
               }
@@ -191,27 +167,15 @@
               "safety_baseline",
               "persona",
               "style",
-              "few_shot",
               "energy_policy",
               "memory",
               "response_contract",
               "custom_experiment",
               "history"
             ],
-            "customExperimentBlockEnabled": false,
-            "fewShot": {
-              "enabled": true,
-              "maxPerLevel": { "E0": 1, "E1": 2, "E2": 2, "E3": 3 },
-              "maxWorldviewPerTurn": 1,
-              "maxChars": 1500,
-              "minScore": 0.35
-            }
+            "customExperimentBlockEnabled": false
           },
           "logging": {
-            "saveContextSnapshot": true,
-            "saveSettingsSnapshot": true,
-            "saveStandardizedProviderResponse": true,
-            "saveRawProviderResponse": false,
             "maxRuns": 2000
           },
           "evaluation": {

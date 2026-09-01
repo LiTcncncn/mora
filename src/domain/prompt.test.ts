@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { renderTemplate, validateTemplate } from "./prompt";
+import {
+  contextSectionIdSchema,
+  DEFAULT_SECTION_ORDER,
+  renderTemplate,
+  validateTemplate,
+} from "./prompt";
 
 const values = {
   "persona.name": "MORA",
@@ -7,7 +12,6 @@ const values = {
   "persona.renderedTraits": "特质",
   "energy.level": "E1",
   "energy.policy": "策略",
-  "fewshot.rendered": "示例",
   "memory.rendered": "记忆",
   "history.rendered": "历史",
   "user.message": "消息",
@@ -22,6 +26,19 @@ describe("validateTemplate", () => {
     const result = validateTemplate("{{process.env.OPENAI_API_KEY}}");
     expect(result.ok).toBe(false);
     expect(result.unknownVariables).toContain("process.env.OPENAI_API_KEY");
+  });
+
+  it("few-shot 注入已移除，fewshot.rendered 不再是合法变量", () => {
+    const result = validateTemplate("{{fewshot.rendered}}");
+    expect(result.ok).toBe(false);
+    expect(result.unknownVariables).toContain("fewshot.rendered");
+  });
+});
+
+describe("contextSectionIdSchema", () => {
+  it("few_shot 分区已移除", () => {
+    expect(contextSectionIdSchema.safeParse("few_shot").success).toBe(false);
+    expect(DEFAULT_SECTION_ORDER).not.toContain("few_shot");
   });
 });
 

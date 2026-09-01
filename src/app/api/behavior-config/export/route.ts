@@ -9,6 +9,7 @@ import {
   serializeExport,
   type TransferKind,
 } from "@/server/config/behavior-transfer";
+import { fetchLabRuntimeExport } from "@/server/config/lab-runtime-transfer";
 import { profileRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -43,7 +44,11 @@ export async function GET(request: Request): Promise<Response> {
     const exportedAt = now.toISOString();
     const payload =
       kind === "mora_behavior_config"
-        ? buildConfigExport(config, exportedAt)
+        ? buildConfigExport(
+            config,
+            exportedAt,
+            await fetchLabRuntimeExport(profileId),
+          )
         : kind === "mora_worldview_library"
           ? buildWorldviewLibraryExport(config, exportedAt)
           : buildExampleLibraryExport(config, exportedAt);

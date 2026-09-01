@@ -133,7 +133,7 @@ export const DEFAULT_REQUEST_FLAGS: RequestFlags = {
 };
 
 /** 标志来源，写入 Inspector 用于解释本轮篇幅为何放宽（§16.1）。 */
-export const requestFlagSourceSchema = z.enum(["rule", "model", "default"]);
+export const requestFlagSourceSchema = z.enum(["rule", "model", "fallback"]);
 export type RequestFlagSource = z.infer<typeof requestFlagSourceSchema>;
 
 /**

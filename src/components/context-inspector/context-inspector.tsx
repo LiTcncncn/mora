@@ -2,22 +2,13 @@
 
 import { useState } from "react";
 import type { EnergyLevel } from "@/domain/common";
-import type { EnergyResolution } from "@/domain/energy";
-import type { ContextSnapshot } from "@/domain/run";
 import type { ModelSlot } from "@/domain/settings";
 import { api, errorMessage } from "@/lib/api-client";
+import { Notice } from "@/components/ui/primitives";
 import {
-  ENERGY_LEVEL_LABELS,
-  ENERGY_SOURCE_LABELS,
-  labelOf,
-} from "@/lib/labels";
-import { Collapsible, Notice } from "@/components/ui/primitives";
-
-interface PreviewResult {
-  slot: { id: string; label: string };
-  energy: EnergyResolution;
-  snapshot: ContextSnapshot;
-}
+  ContextPreviewBody,
+  type PreviewResult,
+} from "./context-preview-body";
 
 export function ContextInspector({
   profileId,
@@ -102,56 +93,7 @@ export function ContextInspector({
           ) : null}
           {error ? <Notice tone="error">{error}</Notice> : null}
 
-          {result ? (
-            <>
-              <Notice>
-                这是发送前的预览。真正的事实来源是发送后写入 run 运行记录的快照；如果预览后修改了设置，两者可能不同。
-              </Notice>
-
-              <dl className="card grid grid-cols-2 gap-x-4 gap-y-2 p-3 text-xs">
-                <div>
-                  <dt className="text-[var(--color-muted)]">
-                    Energy 能量档位
-                  </dt>
-                  <dd>
-                    {labelOf(ENERGY_LEVEL_LABELS, result.energy.level)}（
-                    {labelOf(ENERGY_SOURCE_LABELS, result.energy.source)}）
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[var(--color-muted)]">字符总数</dt>
-                  <dd>{result.snapshot.charCount}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-[var(--color-muted)]">
-                    共享 hash 上下文指纹
-                  </dt>
-                  <dd className="mono break-all">{result.snapshot.sharedHash}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-[var(--color-muted)]">
-                    本槽位 hash 上下文指纹
-                  </dt>
-                  <dd className="mono break-all">{result.snapshot.hash}</dd>
-                </div>
-              </dl>
-
-              <p className="text-xs text-[var(--color-muted)]">
-                判定依据：{result.energy.reason}
-              </p>
-
-              {result.snapshot.sections.map((section, index) => (
-                <Collapsible
-                  key={`${section.id}-${index}`}
-                  title={`${index + 1}. ${section.title}（${section.charCount} 字符）`}
-                >
-                  <pre className="overflow-x-auto text-xs whitespace-pre-wrap">
-                    {section.content}
-                  </pre>
-                </Collapsible>
-              ))}
-            </>
-          ) : null}
+          {result ? <ContextPreviewBody result={result} /> : null}
         </div>
       </div>
     </div>

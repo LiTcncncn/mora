@@ -133,14 +133,15 @@ test("失败槽位只显示调用失败，不展示任何保底文本", async ({
             {
               id: "run-failed",
               profileId: "profile-default",
-              modelSlotId: "slot-openai",
-              slotLabel: "OpenAI",
+              // 必须是种子里真实存在的槽位，否则 buildTurns 会把这条车道整列过滤掉。
+              modelSlotId: "slot-kimi",
+              slotLabel: "Kimi",
               comparisonGroupId: "cmp-e2e",
               conversationId: "conv-e2e",
               mode: "compare",
               status: "failed",
-              provider: "openai",
-              modelId: "gpt-5.6-sol",
+              provider: "kimi",
+              modelId: "kimi-k2.6",
               startedAt: new Date().toISOString(),
               completedAt: null,
               latencyMs: null,
@@ -149,13 +150,6 @@ test("失败槽位只显示调用失败，不展示任何保底文本", async ({
                 outputTokens: null,
                 totalTokens: null,
                 source: "unavailable",
-              },
-              estimatedCost: {
-                amount: null,
-                currency: "USD",
-                isEstimate: true,
-                pricingLabel: null,
-                effectiveDate: null,
               },
               finishReason: null,
               contextHash: "lanehash00000000",
@@ -174,10 +168,24 @@ test("失败槽位只显示调用失败，不展示任何保底文本", async ({
   await expect(page.getByText("今天好累").first()).toBeVisible();
 });
 
-test("Prompt Studio 中安全底线只读且未知变量被拒绝", async ({ page }) => {
+test("Prompt Studio 中安全底线只读且未知变量阻止保存", async ({ page }) => {
   await page.goto("/studio");
-  await expect(page.getByText("产品安全底线（只读）").first()).toBeVisible();
-  await expect(page.getByText("只读，始终启用")).toBeVisible();
+
+  // 安全底线是列表第一条，且不提供任何编辑控件。
+  const baseline = page
+    .getByTestId("prompt-section")
+    .filter({ has: page.locator('[data-section-id="safety_baseline"]') })
+    .or(page.locator('[data-section-id="safety_baseline"]'))
+    .first();
+  await expect(baseline).toBeVisible();
+  await expect(baseline.locator("textarea")).toHaveCount(0);
+  await expect(baseline.locator('input[type="checkbox"]')).toHaveCount(0);
+  await expect(page.getByText("产品安全底线（只读，不可编辑）")).toBeVisible();
+
+  const saveButton = page.getByRole("button", {
+    name: "保存 Prompt Preset 提示词预设",
+  });
+  await expect(saveButton).toBeEnabled();
 
   const editableSection = page
     .getByTestId("prompt-section")
@@ -186,7 +194,45 @@ test("Prompt Studio 中安全底线只读且未知变量被拒绝", async ({ pag
   await editableSection
     .locator("textarea")
     .fill("{{process.env.OPENAI_API_KEY}}");
+
   await expect(page.getByText("未知变量").first()).toBeVisible();
+  await expect(saveButton).toBeDisabled();
+});
+
+test("Studio 可直接预览组装结果，不需要先建对话", async ({ page }) => {
+  await page.goto("/studio");
+
+  await expect(
+    page.getByRole("button", { name: "组装结果预览（只读，不写入任何数据）" }),
+  ).toBeVisible();
+
+  await page.getByLabel("测试用的一句话").fill("今天什么都不想做");
+  await page.getByRole("button", { name: "生成预览" }).click();
+
+  // 安全底线必须是预览里的第一段。
+  await expect(page.getByText(/^1\. 产品安全底线（\d+ 字符）$/)).toBeVisible();
+  await expect(page.getByText("字符总数")).toBeVisible();
+});
+
+test("Studio 可复制并切换 Persona 与预设", async ({ page }) => {
+  await page.goto("/studio");
+
+  const personaSelect = page.getByLabel(/当前 Persona 人格/);
+  await expect(personaSelect).toBeVisible();
+  const before = await personaSelect.locator("option").count();
+
+  await page
+    .locator("div")
+    .filter({ has: personaSelect })
+    .getByRole("button", { name: "复制一版" })
+    .first()
+    .click();
+
+  await expect(personaSelect.locator("option")).toHaveCount(before + 1);
+  // 复制后应当自动切到副本。
+  await expect(personaSelect).toHaveValue(
+    await personaSelect.locator("option").last().getAttribute("value") ?? "",
+  );
 });
 
 test("大模型测试页给出分步结论", async ({ page }, testInfo) => {

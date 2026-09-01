@@ -18,20 +18,17 @@ import type {
 import { getAdapter } from "../adapters/registry";
 import { UNAVAILABLE_USAGE } from "../adapters/types";
 import { AppError } from "../api/errors";
-import { buildContext } from "../context/builder";
-import { measurePolicyDeviation, resolveEnergy } from "../energy/resolver";
-import { selectFewShotSamples } from "../fewshot/selector";
+import { buildContext, measureTurnPlanDeviation } from "../context/builder";
 import {
   extractMemoryCandidates,
   priorContextBeforeUserMessage,
 } from "../memory/candidate-extractor";
-import { selectMemories } from "../memory/selector";
-import { estimateCost } from "../observability/cost";
+import { prepareSharedTurnContext, applyBehaviorTraceAfterContext } from "./prepare-turn";
 import {
   conversationRepository,
-  fewShotRepository,
   memoryRepository,
   personaRepository,
+  profileRepository,
   promptPresetRepository,
   runRepository,
   settingsRepository,
@@ -53,7 +50,6 @@ export interface CompareCandidate {
   finishReason: FinishReason | null;
   usage: TokenUsage;
   latencyMs: number | null;
-  estimatedCost: number | null;
   assistantMessageId: string | null;
   error: { code: string; message: string } | null;
 }
@@ -102,35 +98,29 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     throw new AppError("VALIDATION_ERROR", "至少需要启用一个模型槽位");
   }
 
-  const [persona, promptPreset, memories, fewShotSamples, conversation] =
+  const [profile, persona, promptPreset, memories, conversation] =
     await Promise.all([
+      profileRepository.requireProfile(profileId),
       personaRepository.get(profileId, settings.activePersonaId),
       promptPresetRepository.get(profileId, settings.activePromptPresetId),
       memoryRepository.list(profileId),
-      fewShotRepository.list(profileId),
       conversationRepository.get(profileId, conversationId),
     ]);
 
-  // 共享一次 Energy 与 Memory 解析，保证各槽位公平。
-    const energyResolution = await resolveEnergy({
-      userMessage,
-      settings: settings.energy,
-      override: input.energyOverride,
-      timeoutMs:
-        settings.providers[settings.energy.llmClassifier.provider].transport
-          .timeoutMs,
-    });
-  const memorySelection = selectMemories({
+  const primarySlot = enabledSlots[0]!;
+
+  const sharedTurn = await prepareSharedTurnContext({
+    profileId,
+    profileName: profile.name,
+    userMessage,
+    conversation,
+    modelSlotId: primarySlot.id,
+    settings: {
+      memory: settings.memory,
+      energy: settings.energy,
+    },
     memories,
-    userMessage,
-    settings: settings.memory,
-  });
-  // Few-shot 与 Energy、Memory 一样只解析一次，各槽位共享同一批示例。
-  const fewShotSelection = selectFewShotSamples({
-    samples: fewShotSamples,
-    userMessage,
-    energyLevel: energyResolution.level,
-    settings: settings.context.fewShot,
+    energyOverride: input.energyOverride,
   });
 
   const comparisonGroupId = `cmp-${randomUUID()}`;
@@ -173,25 +163,36 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     const contextSnapshot = buildContext({
       modelSlotId: slot.id,
       userMessage,
-      // 历史里不含本轮 user 消息，避免与当前输入重复。
       conversation,
       persona,
-      energyResolution,
-      selectedMemories: memorySelection.selected,
-      memoryTrace: memorySelection.trace,
-      selectedFewShotSamples: fewShotSelection.selected,
-      fewShotTrace: fewShotSelection.trace,
+      turnPlan: sharedTurn.turnPlan,
+      behaviorConfig: sharedTurn.behaviorConfig,
+      energyResolution: sharedTurn.energyResolution,
+      selectedMemories: sharedTurn.selectedMemories,
+      memoryTrace: sharedTurn.memoryTrace,
       promptPreset,
       settings: {
         context: settings.context,
         memory: settings.memory,
-        energy: settings.energy,
       },
     });
-    return { slot, generation, contextSnapshot };
+    return {
+      slot,
+      generation,
+      contextSnapshot: {
+        ...contextSnapshot,
+        turnRoutingSource: sharedTurn.routing.source,
+      },
+    };
   });
 
   const sharedContextHash = prepared[0]!.contextSnapshot.sharedHash;
+
+  const finalBehaviorTrace = applyBehaviorTraceAfterContext({
+    behaviorTrace: sharedTurn.behaviorTrace,
+    turnPlan: sharedTurn.turnPlan,
+    renderedInstructions: prepared[0]!.contextSnapshot.renderedInstructions,
+  });
 
   const settingsSnapshotFor = (slot: ModelSlot): SettingsSnapshot => ({
     id: `snap-${randomUUID()}`,
@@ -214,27 +215,41 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
 
   const runIds = prepared.map(() => `run-${randomUUID()}`);
 
-  const settled = await Promise.allSettled(
-    prepared.map(async ({ slot, generation, contextSnapshot }, index) => {
-      const adapter = getAdapter(slot.provider);
-      const providerSettings = settings.providers[slot.provider];
-      return adapter.complete({
-        provider: slot.provider,
-        modelId: slot.modelId,
-        instructions: contextSnapshot.renderedInstructions,
-        input: contextSnapshot.renderedInput,
-        generation,
-        timeoutMs: providerSettings.transport.timeoutMs,
-        maxRetries: providerSettings.transport.maxRetries,
-        metadata: {
-          runId: runIds[index]!,
-          conversationId,
-          sharedContextHash,
-          contextHash: contextSnapshot.hash,
+  const settled = sharedTurn.urgentReply
+    ? prepared.map(({ slot }) => ({
+        status: "fulfilled" as const,
+        value: {
+          provider: slot.provider,
+          modelId: slot.modelId,
+          responseId: null,
+          text: sharedTurn.urgentReply as string,
+          usage: UNAVAILABLE_USAGE,
+          latencyMs: 0,
+          appliedParameters: [],
+          finishReason: "completed" as const,
         },
-      });
-    }),
-  );
+      }))
+    : await Promise.allSettled(
+        prepared.map(async ({ slot, generation, contextSnapshot }, index) => {
+          const adapter = getAdapter(slot.provider);
+          const providerSettings = settings.providers[slot.provider];
+          return adapter.complete({
+            provider: slot.provider,
+            modelId: slot.modelId,
+            instructions: contextSnapshot.renderedInstructions,
+            input: contextSnapshot.renderedInput,
+            generation,
+            timeoutMs: providerSettings.transport.timeoutMs,
+            maxRetries: providerSettings.transport.maxRetries,
+            metadata: {
+              runId: runIds[index]!,
+              conversationId,
+              sharedContextHash,
+              contextHash: contextSnapshot.hash,
+            },
+          });
+        }),
+      );
 
   const completedAt = new Date().toISOString();
   const candidates: CompareCandidate[] = [];
@@ -246,12 +261,10 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     const runId = runIds[index]!;
     const outcome = settled[index]!;
     const snapshot: ContextSnapshot = contextSnapshot;
-    const providerSettings = settings.providers[slot.provider];
 
     if (outcome.status === "fulfilled") {
       const result = outcome.value;
       const assistantMessageId = `msg-${randomUUID()}`;
-      const cost = estimateCost(result.usage, providerSettings.pricing);
 
       assistantMessages.push({
         id: assistantMessageId,
@@ -295,14 +308,13 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
         appliedParameters: result.appliedParameters,
         outputText: result.text,
         usage: result.usage,
-        estimatedCost: cost,
         providerResponseId: result.responseId,
         finishReason: result.finishReason,
-        policyDeviation: measurePolicyDeviation(
+        policyDeviation: measureTurnPlanDeviation(
           result.text,
-          energyResolution.level,
-          settings.energy,
+          sharedTurn.turnPlan,
         ),
+        behaviorTrace: finalBehaviorTrace,
         error: null,
       });
 
@@ -320,7 +332,6 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
         finishReason: result.finishReason,
         usage: result.usage,
         latencyMs: result.latencyMs,
-        estimatedCost: cost.amount,
         assistantMessageId,
         error: null,
       });
@@ -358,16 +369,10 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
       appliedParameters: [],
       outputText: null,
       usage: UNAVAILABLE_USAGE,
-      estimatedCost: {
-        amount: null,
-        currency: "USD",
-        isEstimate: true,
-        pricingLabel: providerSettings.pricing.label || null,
-        effectiveDate: providerSettings.pricing.effectiveDate,
-      },
       providerResponseId: null,
       finishReason: null,
       policyDeviation: null,
+      behaviorTrace: finalBehaviorTrace,
       error: {
         code: appError.code,
         message: appError.message,
@@ -390,7 +395,6 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
       finishReason: null,
       usage: UNAVAILABLE_USAGE,
       latencyMs: null,
-      estimatedCost: null,
       assistantMessageId: null,
       error: { code: appError.code, message: appError.message },
     });
@@ -400,6 +404,12 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     await conversationRepository.mutate(profileId, conversationId, (current) => ({
       ...current,
       messages: [...current.messages, ...assistantMessages],
+      worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
+    }));
+  } else {
+    await conversationRepository.mutate(profileId, conversationId, (current) => ({
+      ...current,
+      worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
     }));
   }
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema, isoDateTimeSchema, recordedProviderIdSchema } from "./common";
+import { worldviewScheduleStateSchema } from "./worldview-schedule";
 
 export const messageRoleSchema = z.enum(["user", "assistant"]);
 export type MessageRole = z.infer<typeof messageRoleSchema>;
@@ -33,6 +34,8 @@ export const conversationSchema = z.object({
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
   messages: z.array(conversationMessageSchema),
+  /** §9.5.1：世界观调度状态，老会话首次运行时补齐。 */
+  worldviewScheduleState: worldviewScheduleStateSchema.optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 

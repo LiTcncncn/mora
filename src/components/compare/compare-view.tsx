@@ -10,7 +10,6 @@ import { ContextInspector } from "@/components/context-inspector/context-inspect
 import { RunInspector } from "@/components/runs/run-inspector";
 import { ConfirmButton, EmptyState, Notice } from "@/components/ui/primitives";
 import { api, errorMessage } from "@/lib/api-client";
-import { shortHash } from "@/lib/format";
 import { ENERGY_LEVEL_LABELS, labelOf } from "@/lib/labels";
 import { ModelCell } from "./model-cell";
 import { buildTurns } from "./turns";
@@ -229,46 +228,32 @@ export function CompareView() {
       {error ? <Notice tone="error">{error}</Notice> : null}
 
       {lastResult ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-          <span className="mono">
-            共享 Context hash 上下文指纹{" "}
-            {shortHash(lastResult.sharedContextHash)}
-          </span>
-          <span>
-            Memory 记忆候选提取：
-            {lastResult.memoryExtraction.status === "succeeded"
-              ? `新增 ${lastResult.memoryExtraction.candidateIds.length} 条记忆`
-              : lastResult.memoryExtraction.status === "disabled"
-                ? "已关闭"
-                : CALL_FAILED_TEXT}
-          </span>
+        <div className="text-xs text-[var(--color-muted)]">
+          Memory 记忆候选提取：
+          {lastResult.memoryExtraction.status === "succeeded"
+            ? `新增 ${lastResult.memoryExtraction.candidateIds.length} 条记忆`
+            : lastResult.memoryExtraction.status === "disabled"
+              ? "已关闭"
+              : CALL_FAILED_TEXT}
         </div>
       ) : null}
 
-      <div ref={threadRef} className="min-h-0 flex-1 space-y-6 overflow-y-auto">
+      <div ref={threadRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto">
         {!conversation ? (
           <EmptyState>请选择或新建一个对话。</EmptyState>
         ) : turns.length === 0 ? (
           <EmptyState>还没有消息。写一句话，所有启用的模型会同时回复。</EmptyState>
         ) : (
           turns.map((turn) => (
-            <section key={turn.comparisonGroupId} className="space-y-3">
-              <div className="card px-3 py-2">
-                <div className="label">我</div>
-                <p className="whitespace-pre-wrap break-words">
+            <section key={turn.comparisonGroupId} className="space-y-1.5">
+              <div className="px-1 py-0.5">
+                <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">
+                  <span className="text-[var(--color-muted)]">我：</span>
                   {turn.userMessage.content}
                 </p>
-                {turn.sharedContextHash ? (
-                  <p className="mono mt-1 text-[var(--color-muted)]">
-                    共享 Context 上下文 {shortHash(turn.sharedContextHash)} ·{" "}
-                    {turn.lanesShareContext
-                      ? "各槽位完整上下文一致"
-                      : "各槽位历史已分叉"}
-                  </p>
-                ) : null}
               </div>
               <div
-                className="grid gap-3"
+                className="grid gap-1.5"
                 style={{
                   gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 280px), 1fr))`,
                 }}

@@ -9,10 +9,52 @@ import type { Conversation, ConversationMessage } from "@/domain/conversation";
 import type { FewShotSample } from "@/domain/fewshot";
 import type { MemoryItem } from "@/domain/memory";
 import type { RunRecord } from "@/domain/run";
+import { buildDefaultBehaviorConfig } from "@/domain/behavior-config";
+import { computeConfigHash } from "@/server/config/behavior-hash";
+import { compileTurnPlan } from "@/server/policy/turn-plan-compiler";
+import { classifyTurnRules } from "@/server/router/fallback";
+import { evaluateSafety } from "@/server/safety/evaluate";
+import { finalizeBehaviorTurn } from "@/server/worldview/finalize-behavior-turn";
 import { buildContext } from "@/server/context/builder";
 import personasSeed from "../../data-seed/personas.json";
 import promptPresetsSeed from "../../data-seed/prompt-presets.json";
 import settingsSeed from "../../data-seed/settings.json";
+
+export function seedBehaviorConfig() {
+  const config = buildDefaultBehaviorConfig("默认档案");
+  return { ...config, configHash: computeConfigHash(config) };
+}
+
+export function seedTurnPlan(userMessage = "今天好累") {
+  const config = seedBehaviorConfig();
+  const safety = evaluateSafety(userMessage, config.safety);
+  const routing = classifyTurnRules(
+    {
+      currentUserMessage: userMessage,
+      recentCanonicalMessages: [],
+      previousEnergy: null,
+      lastAssistantAskedQuestion: false,
+      safetyResolution: safety,
+    },
+    config.requestFlags,
+  );
+  const basePlan = compileTurnPlan({ routing, config, safety });
+  return finalizeBehaviorTurn({
+    basePlan,
+    routing,
+    safety,
+    config,
+    conversation: {
+      id: "conv-fixture",
+      profileId: "profile-default",
+      title: "测试",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      messages: [],
+    },
+    userMessage,
+  }).turnPlan;
+}
 
 export function seedSettings(): SettingsData {
   const parsed = storeEnvelopeSchema(settingsStoreDataSchema).parse(settingsSeed);
@@ -91,15 +133,19 @@ export function makeRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
   const settings = seedSettings();
   const persona = seedPersona();
   const promptPreset = seedPromptPreset();
+  const behaviorConfig = seedBehaviorConfig();
+  const turnPlan = seedTurnPlan("今天好累");
 
   const contextSnapshot = buildContext({
     modelSlotId: "slot-kimi",
     userMessage: "今天好累",
     conversation: makeConversation(),
     persona,
+    turnPlan,
+    behaviorConfig,
     energyResolution: {
-      level: "E1",
-      source: "rule_based",
+      level: turnPlan.energy,
+      source: "router",
       reason: "测试",
       signals: [],
     },
@@ -109,7 +155,6 @@ export function makeRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     settings: {
       context: settings.context,
       memory: settings.memory,
-      energy: settings.energy,
     },
   });
 
@@ -155,13 +200,6 @@ export function makeRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
       outputTokens: null,
       totalTokens: null,
       source: "unavailable",
-    },
-    estimatedCost: {
-      amount: null,
-      currency: "USD",
-      isEstimate: true,
-      pricingLabel: null,
-      effectiveDate: null,
     },
     providerResponseId: null,
     finishReason: null,

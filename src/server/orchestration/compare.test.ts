@@ -1,6 +1,9 @@
 import fs from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CALL_FAILED_TEXT } from "@/domain/common";
+import { DEFAULT_URGENT_PLACEHOLDER_TEXT } from "@/domain/safety-rules";
+import { evaluateSafety } from "../safety/evaluate";
+import { behaviorConfigRepository } from "../config/behavior-repository";
 import { AppError } from "../api/errors";
 import { getDataDir } from "../config/env";
 import { ensureBootstrapped } from "../persistence/bootstrap";
@@ -14,6 +17,32 @@ import type { ModelAdapter, UnifiedModelResult } from "../adapters/types";
 import { runCompare } from "./compare";
 
 const DEFAULT_PROFILE = "profile-default";
+
+const ROUTER_MOCK_JSON = JSON.stringify({
+  energy: { level: "E1", confidence: 0.8, evidence: ["好累"] },
+  majorEvent: {
+    matched: false,
+    type: null,
+    temporalStatus: null,
+    subject: null,
+    evidence: [],
+  },
+  questionPreference: { value: "neutral", confidence: 0.7, evidence: [] },
+  responseMode: { value: "COMPANION", confidence: 0.75, evidence: [] },
+  worldviewRelation: {
+    level: "eligible",
+    tags: [],
+    referencedEntities: [],
+    confidence: 0.5,
+    evidence: [],
+  },
+  requestFlags: {
+    wantsDetailedAnswer: false,
+    wantsMultiStepPlan: false,
+    evidence: [],
+  },
+  overallConfidence: 0.72,
+});
 
 const completions = new Map<string, () => Promise<UnifiedModelResult>>();
 
@@ -75,10 +104,15 @@ beforeEach(async () => {
   await ensureBootstrapped().catch(() => undefined);
 
   completions.clear();
+  let deepseekCalls = 0;
   completions.set("kimi", async () => succeed("kimi", "Kimi 的完整回复"));
-  completions.set("deepseek", async () =>
-    succeed("deepseek", "DeepSeek 的完整回复"),
-  );
+  completions.set("deepseek", async () => {
+    deepseekCalls += 1;
+    if (deepseekCalls === 1) {
+      return succeed("deepseek", ROUTER_MOCK_JSON);
+    }
+    return succeed("deepseek", "DeepSeek 的完整回复");
+  });
 
   // 默认关闭自动记忆提取，避免与模型调用断言互相干扰。
   const settings = await settingsRepository.get(DEFAULT_PROFILE);
@@ -277,8 +311,8 @@ describe("runCompare", () => {
     let call = 0;
     completions.set("deepseek", async () => {
       call += 1;
-      // 第一次是聊天调用，第二次是记忆提取调用。
-      if (call === 1) return succeed("deepseek", "DeepSeek 的完整回复");
+      if (call === 1) return succeed("deepseek", ROUTER_MOCK_JSON);
+      if (call === 2) return succeed("deepseek", "DeepSeek 的完整回复");
       throw new AppError("PROVIDER_TIMEOUT", "提取超时");
     });
 
@@ -305,7 +339,8 @@ describe("runCompare", () => {
     let call = 0;
     completions.set("deepseek", async () => {
       call += 1;
-      if (call === 1) return succeed("deepseek", "DeepSeek 的完整回复");
+      if (call === 1) return succeed("deepseek", ROUTER_MOCK_JSON);
+      if (call === 2) return succeed("deepseek", "DeepSeek 的完整回复");
       return succeed(
         "deepseek",
         '{"candidates":[{"type":"event","content":"你最近在做项目交接","importance":0.7}]}',
@@ -337,7 +372,8 @@ describe("runCompare", () => {
     let call = 0;
     completions.set("deepseek", async () => {
       call += 1;
-      if (call === 1) return succeed("deepseek", "DeepSeek 的完整回复");
+      if (call === 1) return succeed("deepseek", ROUTER_MOCK_JSON);
+      if (call === 2) return succeed("deepseek", "DeepSeek 的完整回复");
       return succeed(
         "deepseek",
         '{"candidates":[{"type":"event","content":"你最近在做项目交接","importance":0.7}]}',
@@ -354,6 +390,50 @@ describe("runCompare", () => {
     const memories = await memoryRepository.list(DEFAULT_PROFILE);
     expect(memories).toHaveLength(1);
     expect(memories[0]?.status).toBe("candidate");
+  });
+
+  it("保存 behaviorTrace 供 Run Inspector 复现路由", async () => {
+    const conversationId = await newConversation();
+    await runCompare({
+      profileId: DEFAULT_PROFILE,
+      conversationId,
+      userMessage: "今天好累",
+    });
+
+    const runs = await runRepository.list(DEFAULT_PROFILE);
+    expect(runs[0]?.behaviorTrace?.routing.source).toBe("model");
+    expect(runs[0]?.behaviorTrace?.turnPlan.responseMode).toBe("COMPANION");
+  });
+
+  it("urgent 命中时不调用 Router/主模型，返回占位回复", async () => {
+    const behaviorConfig = await behaviorConfigRepository.get(
+      DEFAULT_PROFILE,
+      "默认测试档案",
+    );
+    expect(evaluateSafety("我想自杀", behaviorConfig.safety).level).toBe("urgent");
+
+    let deepseekCalls = 0;
+    completions.set("deepseek", async () => {
+      deepseekCalls += 1;
+      return succeed("deepseek", "不应出现的主模型回复");
+    });
+
+    const conversationId = await newConversation();
+    const result = await runCompare({
+      profileId: DEFAULT_PROFILE,
+      conversationId,
+      userMessage: "我想自杀",
+    });
+
+    expect(result.candidates.every((c) => c.text === DEFAULT_URGENT_PLACEHOLDER_TEXT)).toBe(
+      true,
+    );
+
+    const runs = await runRepository.list(DEFAULT_PROFILE);
+    expect(runs[0]?.behaviorTrace?.safety.level).toBe("urgent");
+    expect(runs[0]?.behaviorTrace?.safety.urgentPlaceholderUsed).toBe(true);
+    expect(runs[0]?.behaviorTrace?.routing.source).toBe("fixed");
+    expect(deepseekCalls).toBe(0);
   });
 
   it("空消息被拒绝", async () => {

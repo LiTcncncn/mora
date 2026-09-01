@@ -4,6 +4,9 @@ import typescript from "eslint-config-next/typescript";
 const config = [
   {
     ignores: [
+      // next.config 把 distDir 改成了 mo，两个名字都要排除，否则 eslint 会去
+      // 扫构建产物里的生成代码，两万条报错把真正的问题淹掉。
+      "mo/**",
       ".next/**",
       "node_modules/**",
       "coverage/**",

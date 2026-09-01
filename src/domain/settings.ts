@@ -42,14 +42,6 @@ export const providerSettingsSchema = z.object({
     maxRetries: z.number().int().min(0).max(5),
     stream: z.literal(false),
   }),
-  pricing: z.object({
-    currency: z.literal("USD"),
-    inputPerMillion: z.number().nonnegative().nullable(),
-    cachedInputPerMillion: z.number().nonnegative().nullable(),
-    outputPerMillion: z.number().nonnegative().nullable(),
-    label: z.string().max(120),
-    effectiveDate: z.string().max(40).nullable(),
-  }),
 });
 export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
 
@@ -59,8 +51,6 @@ export const energyPolicySchema = z.object({
   maxQuestions: z.number().int().min(0).max(20),
   maxSuggestedActions: z.number().int().min(0).max(20),
   allowAdvice: z.boolean(),
-  validationWeight: z.number().min(0).max(1),
-  actionWeight: z.number().min(0).max(1),
   toneInstruction: z.string().max(2000),
   responseInstruction: z.string().max(2000),
 });
@@ -111,48 +101,6 @@ export const memorySettingsSchema = z.object({
 });
 export type MemorySettings = z.infer<typeof memorySettingsSchema>;
 
-const FEW_SHOT_DEFAULTS = {
-  enabled: true,
-  maxPerLevel: { E0: 1, E1: 2, E2: 2, E3: 3 },
-  maxWorldviewPerTurn: 1,
-  maxChars: 1500,
-  minScore: 0.35,
-} as const;
-
-/**
- * 注入条数按能量档位分开：E0 只有 40 字 2 句的空间，
- * 塞多条上百字的示例会把回复长度带偏。
- */
-export const fewShotSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(FEW_SHOT_DEFAULTS.enabled),
-    maxPerLevel: z
-      .object({
-        E0: z.number().int().min(0).max(10),
-        E1: z.number().int().min(0).max(10),
-        E2: z.number().int().min(0).max(10),
-        E3: z.number().int().min(0).max(10),
-      })
-      .default(FEW_SHOT_DEFAULTS.maxPerLevel),
-    /** 同一轮里带世界观的示例上限，防止示例整批都是雨林联想。 */
-    maxWorldviewPerTurn: z
-      .number()
-      .int()
-      .min(0)
-      .max(5)
-      .default(FEW_SHOT_DEFAULTS.maxWorldviewPerTurn),
-    maxChars: z
-      .number()
-      .int()
-      .min(0)
-      .max(20_000)
-      .default(FEW_SHOT_DEFAULTS.maxChars),
-    /** 相关度下限：宁可不给示例，也不要给一条示范了别的行为的示例。 */
-    minScore: z.number().min(0).max(5).default(FEW_SHOT_DEFAULTS.minScore),
-  })
-  .default(FEW_SHOT_DEFAULTS);
-export type FewShotSettings = z.infer<typeof fewShotSettingsSchema>;
-
 export const contextSettingsSchema = z.object({
   historyTurns: z.number().int().min(0).max(100),
   maxHistoryChars: z.number().int().min(0).max(200_000),
@@ -162,16 +110,14 @@ export const contextSettingsSchema = z.object({
   includeMemoryMetadata: z.boolean(),
   sectionOrder: z.array(contextSectionIdSchema),
   customExperimentBlockEnabled: z.boolean(),
-  // 旧数据没有这一段，必须带默认值，否则历史 settings/runs 读取时校验失败。
-  fewShot: fewShotSettingsSchema,
 });
 export type ContextSettings = z.infer<typeof contextSettingsSchema>;
 
+/**
+ * 上下文快照、设置快照、标准化响应一律无条件保存：Lab 的全部调试能力都建立在
+ * 「每轮都能回看当时发生了什么」之上，可关掉就等于可以调出无法复现的运行记录。
+ */
 export const loggingSettingsSchema = z.object({
-  saveContextSnapshot: z.boolean(),
-  saveSettingsSnapshot: z.boolean(),
-  saveStandardizedProviderResponse: z.boolean(),
-  saveRawProviderResponse: z.boolean(),
   maxRuns: z.number().int().min(10).max(20_000),
 });
 export type LoggingSettings = z.infer<typeof loggingSettingsSchema>;

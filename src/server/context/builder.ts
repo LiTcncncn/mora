@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Conversation, ConversationMessage } from "@/domain/conversation";
+import type { BehaviorConfigV2 } from "@/domain/behavior-config";
+import type { Conversation } from "@/domain/conversation";
 import type { EnergyResolution } from "@/domain/energy";
-import type { FewShotSample, FewShotSelectionTrace } from "@/domain/fewshot";
 import type { MemoryItem, MemorySelectionTrace } from "@/domain/memory";
 import type { Persona } from "@/domain/persona";
 import {
@@ -16,14 +16,18 @@ import type {
   ContextSnapshot,
 } from "@/domain/run";
 import type { SettingsData } from "@/domain/settings";
+import type { TurnPlan } from "@/domain/turn-plan";
+import { assertTurnPlanReadyForContext } from "@/domain/turn-plan";
 import { selectLaneMessages } from "@/domain/conversation";
 import { AppError } from "../api/errors";
-import { renderEnergyPolicy } from "../energy/resolver";
 import { estimateTokens, sha256 } from "../observability/hash";
 import { getSafetyBaselineSection } from "@/domain/safety";
 import {
+  renderResponseContract,
+  renderTurnPlanText,
+} from "../policy/render-turn-plan";
+import {
   limitHistory,
-  renderFewShot,
   renderHistory,
   renderMemories,
   renderPersonaTraits,
@@ -34,13 +38,13 @@ export interface BuildContextInput {
   userMessage: string;
   conversation: Conversation;
   persona: Persona;
+  turnPlan: TurnPlan;
+  behaviorConfig: BehaviorConfigV2;
   energyResolution: EnergyResolution;
   selectedMemories: MemoryItem[];
   memoryTrace: MemorySelectionTrace[];
-  selectedFewShotSamples?: FewShotSample[];
-  fewShotTrace?: FewShotSelectionTrace[];
   promptPreset: PromptPreset;
-  settings: Pick<SettingsData, "context" | "memory" | "energy">;
+  settings: Pick<SettingsData, "context" | "memory">;
 }
 
 interface RenderedSection {
@@ -54,39 +58,61 @@ const INSTRUCTION_SECTIONS: ContextSectionId[] = [
   "safety_baseline",
   "persona",
   "style",
-  "few_shot",
-  "energy_policy",
+  "turn_plan",
   "memory",
   "response_contract",
   "custom_experiment",
 ];
 
+/** v2 运行时由编译器提供，不再读 preset 里的旧分区。 */
+const PRESET_SECTIONS_MANAGED_BY_V2 = new Set<ContextSectionId>([
+  "safety_baseline",
+  "energy_policy",
+  "response_contract",
+  "turn_plan",
+]);
+
 function orderedSectionIds(
   settings: BuildContextInput["settings"],
   preset: PromptPreset,
 ): ContextSectionId[] {
-  const available = new Set(preset.sections.map((section) => section.id));
-  const configured = settings.context.sectionOrder.filter((id) =>
-    available.has(id),
+  const available = new Set(
+    preset.sections
+      .map((section) => section.id)
+      .filter((id) => !PRESET_SECTIONS_MANAGED_BY_V2.has(id)),
   );
-  const missing = preset.sections
-    .map((section) => section.id)
-    .filter((id) => !configured.includes(id));
-  const combined = [...configured, ...missing];
+  const configured = settings.context.sectionOrder.filter(
+    (id) => available.has(id) && !PRESET_SECTIONS_MANAGED_BY_V2.has(id),
+  );
+  const missing = [...available].filter((id) => !configured.includes(id));
 
-  // 安全底线永远排在最前。
-  return [
-    "safety_baseline",
-    ...combined.filter((id) => id !== "safety_baseline"),
-  ];
+  const ordered = [...configured, ...missing];
+  if (!ordered.includes("turn_plan")) {
+    const styleIndex = ordered.indexOf("style");
+    if (styleIndex >= 0) {
+      ordered.splice(styleIndex + 1, 0, "turn_plan");
+    } else {
+      const personaIndex = ordered.indexOf("persona");
+      ordered.splice(personaIndex >= 0 ? personaIndex + 1 : 0, 0, "turn_plan");
+    }
+  }
+  if (!ordered.includes("response_contract")) {
+    ordered.push("response_contract");
+  }
+
+  return ordered;
 }
 
 export function buildContext(input: BuildContextInput): ContextSnapshot {
+  assertTurnPlanReadyForContext(input.turnPlan);
+
   const {
     modelSlotId,
     userMessage,
     conversation,
     persona,
+    turnPlan,
+    behaviorConfig,
     energyResolution,
     selectedMemories,
     memoryTrace,
@@ -94,12 +120,9 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     settings,
   } = input;
 
-  const fewShotTrace = input.fewShotTrace ?? [];
-
   const laneMessages = selectLaneMessages(conversation, modelSlotId);
   let history = limitHistory(laneMessages, settings.context);
   let memories = [...selectedMemories];
-  let fewShotSamples = [...(input.selectedFewShotSamples ?? [])];
   let customBlockEnabled = settings.context.customExperimentBlockEnabled;
   let customBlockDisabledReason: string | null = null;
 
@@ -109,6 +132,7 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
 
   for (const section of promptPreset.sections) {
     if (!section.editable) continue;
+    if (PRESET_SECTIONS_MANAGED_BY_V2.has(section.id)) continue;
     const validation = validateTemplate(section.template);
     if (!validation.ok) {
       throw new AppError(
@@ -122,48 +146,53 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     sections: RenderedSection[];
     instructions: string;
     inputText: string;
-    historyUsed: ConversationMessage[];
   } => {
     const values: Record<TemplateVariable, string> = {
       "persona.name": persona.name,
       "persona.corePrompt": persona.corePrompt,
       "persona.renderedTraits": renderPersonaTraits(persona),
       "energy.level": energyResolution.level,
-      "energy.policy": renderEnergyPolicy(
-        energyResolution.level,
-        settings.energy,
-        {
-          includeReason: settings.context.includeEnergyReason,
-          reason: energyResolution.reason,
-        },
-      ),
-      "fewshot.rendered": renderFewShot(fewShotSamples),
+      "energy.policy": renderTurnPlanText(turnPlan, behaviorConfig, userMessage),
       "memory.rendered": renderMemories(memories, settings.context),
       "history.rendered": renderHistory(history, settings.context),
       "user.message": userMessage,
     };
 
-    const rendered: RenderedSection[] = [];
-    for (const id of orderedSectionIds(settings, promptPreset)) {
-      const section = sectionById.get(id);
-      if (!section) continue;
+    const baseline = getSafetyBaselineSection();
+    const rendered: RenderedSection[] = [
+      {
+        id: "safety_baseline",
+        title: baseline.title,
+        content: baseline.content,
+        sourceIds: [],
+      },
+    ];
 
-      if (id === "safety_baseline") {
-        // 安全底线内容永远来自服务端常量，忽略存储模板，无法被编辑或导入覆盖。
-        const baseline = getSafetyBaselineSection();
+    for (const id of orderedSectionIds(settings, promptPreset)) {
+      if (id === "turn_plan") {
         rendered.push({
-          id,
-          title: baseline.title,
-          content: baseline.content,
+          id: "turn_plan",
+          title: "本轮回复计划",
+          content: renderTurnPlanText(turnPlan, behaviorConfig, userMessage),
           sourceIds: [],
         });
         continue;
       }
 
+      if (id === "response_contract") {
+        rendered.push({
+          id: "response_contract",
+          title: "输出格式约束",
+          content: renderResponseContract(behaviorConfig.responseContract),
+          sourceIds: [],
+        });
+        continue;
+      }
+
+      const section = sectionById.get(id);
+      if (!section) continue;
       if (!section.enabled) continue;
       if (id === "custom_experiment" && !customBlockEnabled) continue;
-      // 没有样本时整块跳过，避免只留下一句没有内容的引导语。
-      if (id === "few_shot" && fewShotSamples.length === 0) continue;
       if (id === "memory" && memories.length === 0 && !settings.memory.enabled) {
         continue;
       }
@@ -178,11 +207,9 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
         sourceIds:
           id === "memory"
             ? memories.map((memory) => memory.id)
-            : id === "few_shot"
-              ? fewShotSamples.map((sample) => sample.id)
-              : id === "history"
-                ? history.map((message) => message.id)
-                : [],
+            : id === "history"
+              ? history.map((message) => message.id)
+              : [],
       });
     }
 
@@ -201,7 +228,7 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
       .filter(Boolean)
       .join("\n\n");
 
-    return { sections: rendered, instructions, inputText, historyUsed: history };
+    return { sections: rendered, instructions, inputText };
   };
 
   let attempt = buildAttempt();
@@ -209,18 +236,12 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     [...attempt.instructions].length + [...attempt.inputText].length >
     settings.context.maxTotalChars;
 
-  // 裁剪优先级：Memory（低分先移除）→ 历史（最旧先移除）→ Few-shot（相关度最低先移除）
-  // → 自定义实验分区 → 报错。
   while (overBudget() && memories.length > 0) {
     memories = memories.slice(0, -1);
     attempt = buildAttempt();
   }
   while (overBudget() && history.length > 0) {
     history = history.slice(1);
-    attempt = buildAttempt();
-  }
-  while (overBudget() && fewShotSamples.length > 0) {
-    fewShotSamples = fewShotSamples.slice(0, -1);
     attempt = buildAttempt();
   }
   if (overBudget() && customBlockEnabled) {
@@ -272,6 +293,7 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     sections: sharedPayload,
     userMessage,
     energyLevel: energyResolution.level,
+    configHash: behaviorConfig.configHash,
   });
 
   const hash = sha256({
@@ -281,6 +303,7 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     })),
     userMessage,
     energyLevel: energyResolution.level,
+    configHash: behaviorConfig.configHash,
   });
 
   const charCount =
@@ -295,8 +318,6 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     renderedInput: attempt.inputText,
     selectedMemoryIds: memories.map((memory) => memory.id),
     memorySelectionTrace: memoryTrace,
-    selectedFewShotIds: fewShotSamples.map((sample) => sample.id),
-    fewShotSelectionTrace: fewShotTrace,
     energy: {
       level: energyResolution.level,
       source: energyResolution.source,
@@ -308,5 +329,43 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     ),
     sharedHash,
     hash,
+    behaviorConfigHash: behaviorConfig.configHash,
+    turnPlan,
+    turnRoutingSource: undefined,
+  };
+}
+
+/** 后置观察：对照 v2 Turn Plan 预算，不截断模型输出。 */
+export function measureTurnPlanDeviation(
+  outputText: string,
+  plan: TurnPlan,
+): {
+  targetMaxChars: number;
+  actualChars: number;
+  targetMaxSentences: number;
+  actualSentences: number;
+  maxQuestions: number;
+  actualQuestions: number;
+  withinTarget: boolean;
+} {
+  const actualChars = [...outputText].length;
+  const actualSentences = outputText
+    .split(/[。！？!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean).length;
+  const actualQuestions = (outputText.match(/[?？]/g) ?? []).length;
+  const budget = plan.responseBudget;
+
+  return {
+    targetMaxChars: budget.targetMaxChars,
+    actualChars,
+    targetMaxSentences: budget.maxSentences,
+    actualSentences,
+    maxQuestions: budget.maxQuestions,
+    actualQuestions,
+    withinTarget:
+      actualChars <= budget.targetMaxChars &&
+      actualSentences <= budget.maxSentences &&
+      actualQuestions <= budget.maxQuestions,
   };
 }

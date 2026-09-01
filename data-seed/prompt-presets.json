@@ -11,13 +11,6 @@
         "version": 2,
         "sections": [
           {
-            "id": "safety_baseline",
-            "enabled": true,
-            "title": "产品安全底线（只读）",
-            "template": "",
-            "editable": false
-          },
-          {
             "id": "persona",
             "enabled": true,
             "title": "人格",
@@ -29,13 +22,6 @@
             "enabled": true,
             "title": "语气与风格",
             "template": "{{persona.renderedTraits}}",
-            "editable": true
-          },
-          {
-            "id": "few_shot",
-            "enabled": true,
-            "title": "参考对话",
-            "template": "下面是几段参考对话，示范这种时候该用什么口气和节奏。\n示例里的具体事件不要挪用，也不要当成用户的事。但示例里那种从自己雨林生活里随口带一句的说法，本身就是你说话的一部分，遇到贴得上的场景就换成自己的话带一句。\n\n{{fewshot.rendered}}",
             "editable": true
           },
           {

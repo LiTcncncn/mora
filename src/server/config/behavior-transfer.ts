@@ -8,6 +8,7 @@ import {
   type BehaviorConfigExport,
   type BehaviorConfigV2,
   type ExampleLibraryExport,
+  type LabRuntimeExport,
   type WorldviewLibraryExport,
 } from "@/domain/behavior-config";
 import { moraConfigBundleSchema } from "@/domain/config-bundle";
@@ -63,6 +64,7 @@ export function serializeExport(payload: unknown): string {
 export function buildConfigExport(
   config: BehaviorConfigV2,
   exportedAt: string,
+  labRuntime?: LabRuntimeExport,
 ): BehaviorConfigExport {
   const payload: BehaviorConfigExport = {
     schemaVersion: BEHAVIOR_CONFIG_SCHEMA_VERSION,
@@ -91,6 +93,8 @@ export function buildConfigExport(
     canonFacts: config.canonFacts,
     worldviewSeeds: config.worldviewSeeds,
     exampleCards: config.exampleCards,
+
+    ...(labRuntime ? { labRuntime } : {}),
   };
 
   // strict schema 在这里第二次把关：任何漏在白名单外又混进来的字段会被拒绝。

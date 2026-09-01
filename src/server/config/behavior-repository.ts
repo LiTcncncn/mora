@@ -10,6 +10,9 @@ import { backupActiveConfig } from "./behavior-backup";
 import { computeConfigHash } from "./behavior-hash";
 import { commitImport, prepareImport, type ImportPreview } from "./behavior-import";
 import {
+  applyLabRuntimeImport,
+} from "./lab-runtime-transfer";
+import {
   bumpChangedVersions,
   type ConfigVersionField,
 } from "./behavior-versions";
@@ -138,7 +141,13 @@ export const behaviorConfigRepository = {
       return { next: { items }, result: null };
     });
 
-    return { config, audit, backup };
+    let labRuntimeApplied = false;
+    if (preview.labRuntime) {
+      await applyLabRuntimeImport(profileId, profileName, preview.labRuntime);
+      labRuntimeApplied = true;
+    }
+
+    return { config, audit, backup, labRuntimeApplied };
   },
 
   async removeForProfile(profileId: string): Promise<void> {

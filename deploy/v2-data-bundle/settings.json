@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-31T16:26:41.656Z",
+  "data": {
+    "items": [
+      {
+        "profileId": "profile-default",
+        "settings": {
+          "activePersonaId": "persona-6f1acd60-3173-4410-81c4-561814ecdbfa",
+          "activePromptPresetId": "preset-785fae2d-49f1-425b-81c1-0fe8384a6f16",
+          "defaultProvider": "kimi",
+          "providers": {
+            "kimi": {
+              "enabled": true,
+              "modelId": "kimi-k2.6",
+              "generation": {
+                "temperature": 0.6,
+                "topP": null,
+                "maxOutputTokens": 2000,
+                "presencePenalty": null,
+                "frequencyPenalty": null,
+                "seed": null,
+                "thinkingMode": "disabled",
+                "reasoningEffort": null,
+                "verbosity": null
+              },
+              "transport": {
+                "timeoutMs": 60000,
+                "maxRetries": 1,
+                "stream": false
+              }
+            },
+            "deepseek": {
+              "enabled": true,
+              "modelId": "deepseek-v4-pro",
+              "generation": {
+                "temperature": 0.6,
+                "topP": null,
+                "maxOutputTokens": 2000,
+                "presencePenalty": null,
+                "frequencyPenalty": null,
+                "seed": null,
+                "thinkingMode": "disabled",
+                "reasoningEffort": null,
+                "verbosity": null
+              },
+              "transport": {
+                "timeoutMs": 60000,
+                "maxRetries": 1,
+                "stream": false
+              }
+            }
+          },
+          "energy": {
+            "mode": "llm",
+            "manualLevel": "E2",
+            "allowPerMessageOverride": true,
+            "llmClassifier": {
+              "provider": "deepseek",
+              "modelId": "deepseek-v4-flash"
+            },
+            "ruleBased": {
+              "enabled": true,
+              "lowEnergyKeywords": [
+                "累",
+                "心疼",
+                "疲惫",
+                "撑不住",
+                "不想动",
+                "什么都不想做",
+                "烦",
+                "睡不着",
+                "崩溃",
+                "哭"
+              ],
+              "highEnergyKeywords": [
+                "想聊聊",
+                "我想说说",
+                "想说说",
+                "不问问我",
+                "为什么不问",
+                "你问我",
+                "有个计划",
+                "想试试",
+                "帮我想想",
+                "怎么办",
+                "分析",
+                "准备"
+              ],
+              "exhaustionPunctuationWeight": 0.2,
+              "shortMessageThreshold": 12
+            },
+            "policies": {
+              "E0": {
+                "targetMaxChars": 180,
+                "targetMaxSentences": 3,
+                "maxQuestions": 1,
+                "maxSuggestedActions": 0,
+                "allowAdvice": false,
+                "toneInstruction": "轻、口语、不着急。把这句接住并说完整，不要只点个头。",
+                "responseInstruction": "先执行优先级，再执行能量档位：现实安全风险＞明确求办法或行动受阻＞已选动作＞完成小事＞普通倾诉。身体症状明显加重并伴有呼吸困难、胸痛或意识异常时，直接给一个安全优先的下一步。用户明确问怎么办、怎么缓解、该不该，或明确想行动却卡住时，本轮先直接回答，只给一个动作，不给动作链或备选，也不先追问原因。用户已选定动作时只确认，可简短说明作用，但不出现第二个行动。用户完成小事时只肯定事实，不与没做比较，也不提剩余任务。只有用户未求办法、没有行动意图且没有现实风险时，才以承接和陪伴为主，不建议行动、不分析。可以自然说“抱抱你”或“心疼你”，也可以不问。禁止用「愿意说的时候我听着」「不想说也没关系」把话挡回去。"
+              },
+              "E1": {
+                "targetMaxChars": 280,
+                "targetMaxSentences": 5,
+                "maxQuestions": 1,
+                "maxSuggestedActions": 1,
+                "allowAdvice": true,
+                "toneInstruction": "温和、把话说完整，不着急。",
+                "responseInstruction": "先执行优先级，再执行能量档位：现实安全风险＞明确求办法或行动受阻＞已选动作＞完成小事＞普通倾诉。身体症状明显加重并伴有呼吸困难、胸痛或意识异常时，直接给一个安全优先的下一步。用户明确问怎么办、怎么缓解、该不该，或明确想行动却卡住时，本轮先直接回答，只给一个动作，不给动作链或备选，也不先追问原因。用户已选定动作时只确认，可简短说明作用，但不出现第二个行动。用户完成小事时只肯定事实，不与没做比较，也不提剩余任务。普通倾诉时先回应具体处境，通常三到五句；不为了维持对话追问持续时间、身体反应、原因或情绪类别。"
+              },
+              "E2": {
+                "targetMaxChars": 380,
+                "targetMaxSentences": 7,
+                "maxQuestions": 1,
+                "maxSuggestedActions": 1,
+                "allowAdvice": true,
+                "toneInstruction": "温和，可以稍微展开一点。",
+                "responseInstruction": "先执行优先级，再执行能量档位：现实安全风险＞明确求办法或行动受阻＞已选动作＞完成小事＞普通倾诉。身体症状明显加重并伴有呼吸困难、胸痛或意识异常时，直接给一个安全优先的下一步。用户明确问怎么办、怎么缓解、该不该，或明确想行动却卡住时，本轮先直接回答，只给一个动作，不给动作链或备选，也不先追问原因。用户已选定动作时只确认，可简短说明作用，但不出现第二个行动。用户完成小事时只肯定事实，不与没做比较，也不提剩余任务。普通倾诉时沿着对方最在意的部分把话说完整，口语、不列清单，不为了维持对话提问。"
+              },
+              "E3": {
+                "targetMaxChars": 600,
+                "targetMaxSentences": 9,
+                "maxQuestions": 2,
+                "maxSuggestedActions": 2,
+                "allowAdvice": true,
+                "toneInstruction": "自然、放松，可以聊得更完整。",
+                "responseInstruction": "先执行优先级，再执行能量档位：现实安全风险＞明确求办法或行动受阻＞已选动作＞完成小事＞普通倾诉。身体症状明显加重并伴有呼吸困难、胸痛或意识异常时，直接给一个安全优先的下一步。用户明确问怎么办、怎么缓解、该不该，或明确想行动却卡住时，本轮先直接回答，只给一个动作，不给动作链或备选，也不先追问原因。用户已选定动作时只确认，可简短说明作用，但不出现第二个行动。用户完成小事时只肯定事实，不与没做比较，也不提剩余任务。普通聊天时沿当前话题继续；不说教、不堆建议，对方不想接问句时不要追。"
+              }
+            }
+          },
+          "memory": {
+            "enabled": true,
+            "topK": 6,
+            "maxChars": 800,
+            "minImportance": 0.3,
+            "includedTypes": [
+              "profile",
+              "preference",
+              "event",
+              "support_strategy",
+              "boundary",
+              "relationship",
+              "other"
+            ],
+            "weights": {
+              "pinned": 0.3,
+              "importance": 0.3,
+              "recency": 0.15,
+              "keywordRelevance": 0.25
+            },
+            "autoCandidateExtraction": {
+              "enabled": true,
+              "provider": "deepseek",
+              "modelId": "deepseek-v4-flash",
+              "requireManualApproval": false
+            }
+          },
+          "context": {
+            "historyTurns": 12,
+            "maxHistoryChars": 6000,
+            "maxTotalChars": 24000,
+            "includeTimestamps": false,
+            "includeEnergyReason": false,
+            "includeMemoryMetadata": false,
+            "sectionOrder": [
+              "safety_baseline",
+              "persona",
+              "style",
+              "energy_policy",
+              "memory",
+              "response_contract",
+              "custom_experiment",
+              "history"
+            ],
+            "customExperimentBlockEnabled": false
+          },
+          "logging": {
+            "maxRuns": 2000
+          },
+          "evaluation": {
+            "enabled": false,
+            "autoEvaluatorEnabled": false
+          },
+          "compare": {
+            "runInParallel": true,
+            "historyMode": "independent_lanes",
+            "modelSlots": [
+              {
+                "id": "slot-kimi",
+                "label": "Kimi",
+                "enabled": false,
+                "provider": "kimi",
+                "modelId": "kimi-k2.6",
+                "generationOverrides": {}
+              },
+              {
+                "id": "slot-deepseek",
+                "label": "DeepSeek",
+                "enabled": true,
+                "provider": "deepseek",
+                "modelId": "deepseek-v4-pro",
+                "generationOverrides": {}
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

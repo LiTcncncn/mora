@@ -9,9 +9,10 @@ import {
   runStatusSchema,
   tokenUsageSchema,
 } from "./common";
-import { fewShotSelectionTraceSchema } from "./fewshot";
 import { memorySelectionTraceSchema } from "./memory";
 import { contextSectionIdSchema } from "./prompt";
+import { turnPlanSchema } from "./turn-plan";
+import { behaviorTraceSchema } from "./behavior-trace";
 import {
   contextSettingsSchema,
   energySettingsSchema,
@@ -71,16 +72,18 @@ export const contextSnapshotSchema = z.object({
   renderedInput: z.string(),
   selectedMemoryIds: z.array(idSchema),
   memorySelectionTrace: z.array(memorySelectionTraceSchema),
-  // 早于 few-shot 模块的历史 run 没有这些字段。
-  selectedFewShotIds: z.array(idSchema).default([]),
-  fewShotSelectionTrace: z.array(fewShotSelectionTraceSchema).default([]),
   energy: z.object({
     level: energyLevelSchema,
-    source: z.enum(["manual", "rule_based", "override", "llm"]),
+    source: z.enum(["manual", "rule_based", "override", "llm", "router"]),
     reason: z.string(),
   }),
   charCount: z.number().int().nonnegative(),
   estimatedTokens: z.number().int().nonnegative().nullable(),
+  /** v2 行为配置 hash，用于解释行为突变。 */
+  behaviorConfigHash: z.string().optional(),
+  /** 编译后的本轮计划，供 Inspector 复现。 */
+  turnPlan: turnPlanSchema.optional(),
+  turnRoutingSource: z.string().optional(),
   /** 不含槽位独立 assistant 历史的共享部分 hash。 */
   sharedHash: z.string(),
   /** 当前槽位完整有效 Context 的 hash（laneContextHash）。 */
@@ -124,16 +127,11 @@ export const runRecordSchema = z.object({
   appliedParameters: z.array(appliedParameterSchema),
   outputText: z.string().nullable(),
   usage: tokenUsageSchema,
-  estimatedCost: z.object({
-    amount: z.number().nonnegative().nullable(),
-    currency: z.literal("USD"),
-    isEstimate: z.literal(true),
-    pricingLabel: z.string().nullable(),
-    effectiveDate: z.string().nullable(),
-  }),
   providerResponseId: z.string().nullable(),
   finishReason: finishReasonSchema.nullable(),
   policyDeviation: policyDeviationSchema.nullable(),
+  /** §16.1：1.1 行为引擎完整追踪（Safety / Router / Turn Plan）。 */
+  behaviorTrace: behaviorTraceSchema.nullable().optional(),
   error: z
     .object({
       code: z.string(),
@@ -165,7 +163,6 @@ export type RunSummary = Pick<
   | "completedAt"
   | "latencyMs"
   | "usage"
-  | "estimatedCost"
   | "finishReason"
   | "contextHash"
   | "sharedContextHash"
@@ -188,7 +185,6 @@ export function toRunSummary(run: RunRecord): RunSummary {
     completedAt: run.completedAt,
     latencyMs: run.latencyMs,
     usage: run.usage,
-    estimatedCost: run.estimatedCost,
     finishReason: run.finishReason,
     contextHash: run.contextHash,
     sharedContextHash: run.sharedContextHash,

@@ -10,7 +10,7 @@ export type EnergySignal = z.infer<typeof energySignalSchema>;
 
 export const energyResolutionSchema = z.object({
   level: energyLevelSchema,
-  source: z.enum(["manual", "rule_based", "override", "llm"]),
+  source: z.enum(["manual", "rule_based", "override", "llm", "router"]),
   reason: z.string(),
   signals: z.array(energySignalSchema),
 });
