@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ENERGY_LEVELS, type EnergyLevel, type ProviderId } from "@/domain/common";
 import { MEMORY_TYPES } from "@/domain/memory";
 import { DEFAULT_SECTION_ORDER } from "@/domain/prompt";
@@ -24,25 +24,38 @@ import {
   CONTEXT_SECTION_LABELS,
 } from "@/lib/labels";
 import { ProfileManager } from "./profile-manager";
-import { BehaviorConfigEditor } from "./behavior-config-editor";
+import {
+  BehaviorConfigEditor,
+  type BehaviorConfigEditorHandle,
+} from "./behavior-config-editor";
 import { ConfigTransfer } from "./config-transfer";
 
 const PROVIDERS: ProviderId[] = ["kimi", "deepseek"];
 
 export function SettingsView() {
   const { activeProfileId, providerStatus } = useProfiles();
+  const behaviorEditorRef = useRef<BehaviorConfigEditorHandle>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [settingsSnapshot, setSettingsSnapshot] = useState("");
+  const [behaviorDirty, setBehaviorDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const loadSettings = async (profileId: string): Promise<void> => {
+    const data = await api.get<SettingsData>(
+      `/api/settings?profileId=${encodeURIComponent(profileId)}`,
+    );
+    setSettings(data);
+    setSettingsSnapshot(JSON.stringify(data));
+  };
+
   const load = async (profileId: string): Promise<void> => {
     try {
-      setSettings(
-        await api.get<SettingsData>(
-          `/api/settings?profileId=${encodeURIComponent(profileId)}`,
-        ),
-      );
+      await Promise.all([
+        loadSettings(profileId),
+        behaviorEditorRef.current?.reload(),
+      ]);
       setError(null);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -52,16 +65,47 @@ export function SettingsView() {
   useEffect(() => {
     if (!activeProfileId) return;
     setStatus(null);
-    void load(activeProfileId);
+    void loadSettings(activeProfileId).catch((caught) =>
+      setError(errorMessage(caught)),
+    );
   }, [activeProfileId]);
+
+  const settingsDirty =
+    settings !== null && JSON.stringify(settings) !== settingsSnapshot;
+  const dirty = settingsDirty || behaviorDirty;
 
   const save = async (): Promise<void> => {
     if (!activeProfileId || !settings) return;
+    if (!dirty) {
+      setStatus("没有需要保存的改动");
+      return;
+    }
+
     setSaving(true);
     setStatus(null);
     try {
-      await api.put("/api/settings", { profileId: activeProfileId, settings });
-      setStatus("已保存到本机 data/settings.json");
+      const saved: string[] = [];
+      if (behaviorDirty || behaviorEditorRef.current?.isDirty()) {
+        if (!behaviorEditorRef.current) {
+          throw new Error("行为配置编辑器未就绪，请稍候再试");
+        }
+        await behaviorEditorRef.current.save();
+        const qp = behaviorEditorRef.current.getQuestionPolicySummary();
+        saved.push(qp ? `行为配置（${qp}）` : "行为配置");
+      }
+      if (settingsDirty) {
+        await api.put("/api/settings", {
+          profileId: activeProfileId,
+          settings,
+        });
+        setSettingsSnapshot(JSON.stringify(settings));
+        saved.push("模型与 Context 设置");
+      }
+      setStatus(
+        saved.length > 0
+          ? `已保存：${saved.join("、")}`
+          : "没有需要保存的改动",
+      );
       setError(null);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -90,10 +134,15 @@ export function SettingsView() {
         下方 v1 Settings 仍管模型槽位、供应商、Memory 检索与 Context 预算；Energy 档位判定来自 v2 Router（可用手动 override）。
       </Notice>
 
-      <Collapsible title="行为配置 v2（Router / Energy / 世界观 / 示例卡）" defaultOpen>
+      <Collapsible
+        title="行为配置 v2（Router / Energy / 世界观 / 示例卡）"
+        defaultOpen
+        keepMounted
+      >
         <BehaviorConfigEditor
+          ref={behaviorEditorRef}
           profileId={activeProfileId}
-          onSaved={() => void load(activeProfileId)}
+          onDirtyChange={setBehaviorDirty}
         />
       </Collapsible>
 
@@ -175,18 +224,22 @@ export function SettingsView() {
         <button
           type="button"
           className="btn btn-primary"
-          disabled={saving}
+          disabled={saving || !dirty}
           onClick={() => void save()}
         >
-          {saving ? "保存中…" : "保存设置"}
+          {saving ? "保存中…" : "保存"}
         </button>
         <button
           type="button"
           className="btn"
+          disabled={saving || !dirty}
           onClick={() => void load(activeProfileId)}
         >
           放弃修改
         </button>
+        {dirty ? (
+          <span className="text-xs text-[var(--color-warning)]">有未保存的改动</span>
+        ) : null}
       </div>
     </div>
   );

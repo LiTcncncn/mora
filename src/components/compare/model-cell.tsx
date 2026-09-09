@@ -49,13 +49,13 @@ export function ModelCell({
         <div className="min-w-0 flex-1 px-2 py-1.5">
           {failed ? (
             <p className="text-[15px] leading-snug text-[var(--color-danger)]">
-              <span className="text-[var(--color-muted)]">MORA：</span>
+              <span className="text-[var(--color-muted)]">ZHAKA：</span>
               {CALL_FAILED_TEXT}
             </p>
           ) : (
             <>
               <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">
-                <span className="text-[var(--color-muted)]">MORA：</span>
+                <span className="text-[var(--color-muted)]">ZHAKA：</span>
                 {shownText}
               </p>
               {needsFold ? (

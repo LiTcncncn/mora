@@ -7,7 +7,7 @@ import {
 } from "./prompt";
 
 const values = {
-  "persona.name": "MORA",
+  "persona.name": "ZHAKA",
   "persona.corePrompt": "核心",
   "persona.renderedTraits": "特质",
   "energy.level": "E1",
@@ -44,7 +44,7 @@ describe("contextSectionIdSchema", () => {
 
 describe("renderTemplate", () => {
   it("只做字符串替换", () => {
-    expect(renderTemplate("你好 {{persona.name}}", values)).toBe("你好 MORA");
+    expect(renderTemplate("你好 {{persona.name}}", values)).toBe("你好 ZHAKA");
   });
 
   it("遇到未知变量直接抛错，不做静默替换", () => {
@@ -53,6 +53,6 @@ describe("renderTemplate", () => {
 
   it("不会执行模板中的表达式", () => {
     const rendered = renderTemplate("{{ persona.name }}", values);
-    expect(rendered).toBe("MORA");
+    expect(rendered).toBe("ZHAKA");
   });
 });

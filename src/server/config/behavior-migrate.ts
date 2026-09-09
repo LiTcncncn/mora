@@ -5,8 +5,7 @@ import {
 } from "@/domain/behavior-config";
 import type { BehaviorExampleCard } from "@/domain/behavior-example";
 import type { ResponseMode } from "@/domain/behavior-taxonomy";
-import type { MoraConfigBundle } from "@/domain/config-bundle";
-import type { FewShotSample } from "@/domain/fewshot";
+import type { MoraConfigBundle, LegacyFewShotSample } from "@/domain/config-bundle";
 import type { EnergyLevel } from "@/domain/common";
 import { computeConfigHash } from "./behavior-hash";
 
@@ -56,7 +55,7 @@ export interface MigrationResult {
  * 「提供什么世界观内容」。v2 里前者归示例卡、后者归种子，因此 L1/L2 的样本
  * 必须拆成两个候选——迁移器只能生成不含世界观的那一半，种子要人工写。
  */
-function needsSeedSplit(sample: FewShotSample): boolean {
+function needsSeedSplit(sample: LegacyFewShotSample): boolean {
   return sample.worldview !== "none";
 }
 
@@ -68,7 +67,7 @@ function needsSeedSplit(sample: FewShotSample): boolean {
  * 落到 `reviewStatus=pending`，因此推错的代价是人工改一个下拉框，
  * 不是错误行为进入运行。
  */
-function inferResponseMode(sample: FewShotSample): ResponseMode {
+function inferResponseMode(sample: LegacyFewShotSample): ResponseMode {
   const text = `${sample.scene}\n${sample.user}`;
 
   if (/结束对话|我睡了|不聊了|改天|明天再说/.test(text)) return "CLOSE";
@@ -84,14 +83,14 @@ function inferResponseMode(sample: FewShotSample): ResponseMode {
   return "COMPANION";
 }
 
-function energyRangeFor(sample: FewShotSample): EnergyLevel[] {
+function energyRangeFor(sample: LegacyFewShotSample): EnergyLevel[] {
   return sample.energy === "any"
     ? ["E0", "E1", "E2", "E3"]
     : [sample.energy];
 }
 
 function questionPreferencesFor(
-  sample: FewShotSample,
+  sample: LegacyFewShotSample,
 ): Array<"invite" | "neutral" | "avoid"> {
   const text = `${sample.scene}\n${sample.user}`;
   if (/别问|不想说|不想被问|嫌被问|别再问/.test(text)) return ["avoid"];
@@ -99,7 +98,7 @@ function questionPreferencesFor(
   return ["neutral"];
 }
 
-function toExampleCard(sample: FewShotSample): BehaviorExampleCard {
+function toExampleCard(sample: LegacyFewShotSample): BehaviorExampleCard {
   return {
     // id 保留原值：内容资产的 id 被历史 Run 引用（§13.6.5）。
     id: sample.id,
@@ -154,13 +153,11 @@ export function migrateV1ToV2(
       ...budgets[level],
       targetMaxChars,
       maxSentences: legacy.targetMaxSentences,
-      defaultMaxQuestions: Math.min(2, legacy.maxQuestions),
       defaultMaxActions: Math.min(2, legacy.maxSuggestedActions),
     };
     migratedEnergyFields.push(
       `${level}.targetMaxChars`,
       `${level}.maxSentences`,
-      `${level}.defaultMaxQuestions`,
       `${level}.defaultMaxActions`,
     );
 
@@ -169,9 +166,9 @@ export function migrateV1ToV2(
         `${level} 的 v1 targetMaxChars (${legacy.targetMaxChars}) 超过 v2 的 hardMaxChars (${hardMax})，已收敛到 ${hardMax}。v2 的四档梯度按 §4.3 重新定过，旧值不再适用；如确需更长回复，请在 Lab 内同时调高该档的 hardMaxChars`,
       );
     }
-    if (legacy.maxQuestions > 2) {
+    if (legacy.maxQuestions > 0) {
       notes.push(
-        `${level} 的 v1 maxQuestions 为 ${legacy.maxQuestions}，已收敛到 v2 上限 2`,
+        `${level} 的 v1 maxQuestions (${legacy.maxQuestions}) 不再写入能量预算；提问数改由 questionPolicy 与 Router 决定`,
       );
     }
     if (legacy.maxSuggestedActions > 2) {

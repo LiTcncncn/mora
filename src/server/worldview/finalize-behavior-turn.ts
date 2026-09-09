@@ -9,6 +9,7 @@ import type {
 } from "@/domain/worldview-schedule";
 import { createInitialWorldviewScheduleState } from "@/domain/worldview-schedule";
 import { retrieveBehaviorExample } from "../example/retrieve";
+import { applyCasualChatOverrides } from "../policy/casual-chat-policy";
 import { enrichTurnPlanWithWorldview } from "../policy/worldview-turn-plan";
 import { retrieveCanonFacts } from "./canon-retrieval";
 import { evaluateEligibleTurn } from "./eligible-turn";
@@ -64,7 +65,8 @@ export function finalizeBehaviorTurn(input: {
   conversation: Conversation;
   userMessage: string;
 }): FinalizeBehaviorTurnResult {
-  const { basePlan, routing, safety, config, conversation, userMessage } = input;
+  const { routing, safety, config, conversation, userMessage } = input;
+  const basePlan = applyCasualChatOverrides(input.basePlan, userMessage);
   const preState = resolveScheduleState(conversation, config);
   const assistantTurnIndex = countAssistantTurns(conversation);
   const settings = config.worldview;

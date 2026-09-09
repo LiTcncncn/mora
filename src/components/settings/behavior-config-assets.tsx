@@ -125,6 +125,24 @@ export function CanonFactsEditor({
   );
 }
 
+const SEED_RESPONSE_MODES: ResponseMode[] = [
+  "COMPANION",
+  "ASK_LIGHT",
+  "DIRECT_ANSWER",
+  "ONE_STEP_HELP",
+  "CONFIRM_CHOICE",
+  "CELEBRATE",
+  "REPAIR",
+  "CLOSE",
+];
+
+const SEED_ENERGY_LEVELS: EnergyLevel[] = ["E0", "E1", "E2", "E3"];
+
+function toggleListValue<T extends string>(list: T[], value: T, on: boolean): T[] {
+  if (on) return list.includes(value) ? list : [...list, value];
+  return list.filter((item) => item !== value);
+}
+
 export function SeedsEditor({
   seeds,
   onChange,
@@ -166,29 +184,58 @@ export function SeedsEditor({
   return (
     <div className="space-y-3">
       <p className="text-xs text-[var(--color-muted)]">
-        自然世界观（W1/W2）用的情景种子。默认新建为停用，填完再启用。
+        自然世界观（W1/W2）情景种子，共 {seeds.length}{" "}
+        条。标题 / 触发 / 画面 / 态度等均可直接改；默认新建为停用。
       </p>
       {seeds.map((seed, index) => (
         <Collapsible
           key={seed.id}
-          title={`${seed.enabled ? "✓" : "○"} ${seed.title}（${seed.id}）`}
+          title={`${seed.enabled ? "✓" : "○"} ${seed.title}（${seed.id}）· ${seed.cooldownGroup}`}
         >
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={seed.enabled}
-                onChange={(event) =>
-                  update(index, { enabled: event.target.checked })
-                }
-              />
-              启用
-            </label>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={seed.enabled}
+                  onChange={(event) =>
+                    update(index, { enabled: event.target.checked })
+                  }
+                />
+                启用
+              </label>
+              <span className="mono text-xs text-[var(--color-muted)]">
+                {seed.id}
+              </span>
+            </div>
             <Field label="标题">
               <input
                 className="field"
                 value={seed.title}
                 onChange={(event) => update(index, { title: event.target.value })}
+              />
+            </Field>
+            <Field label="冷却组">
+              <input
+                className="field"
+                value={seed.cooldownGroup}
+                onChange={(event) =>
+                  update(index, { cooldownGroup: event.target.value.trim() || "ordinary" })
+                }
+              />
+            </Field>
+            <Field label="标签（逗号分隔）">
+              <input
+                className="field"
+                value={seed.tags.join("，")}
+                onChange={(event) =>
+                  update(index, {
+                    tags: event.target.value
+                      .split(/[,，]/)
+                      .map((part) => part.trim())
+                      .filter(Boolean),
+                  })
+                }
               />
             </Field>
             <Field label="触发描述">
@@ -200,30 +247,109 @@ export function SeedsEditor({
                 }
               />
             </Field>
-            <Field label="记忆（memory）">
+            <Field label="画面 memory（全文可改）">
               <textarea
-                className="field min-h-16"
+                className="field min-h-20"
                 value={seed.memory}
                 onChange={(event) => update(index, { memory: event.target.value })}
               />
             </Field>
-            <Field label="态度（attitude）">
+            <Field label="态度 attitude（全文可改）">
               <textarea
-                className="field min-h-12"
+                className="field min-h-16"
                 value={seed.attitude}
                 onChange={(event) =>
                   update(index, { attitude: event.target.value })
                 }
               />
             </Field>
-            <Field label="冷却组">
-              <input
-                className="field"
-                value={seed.cooldownGroup}
+            <Field label="额外避免 avoidClaims（一行一条）">
+              <textarea
+                className="field min-h-12"
+                value={seed.avoidClaims.join("\n")}
                 onChange={(event) =>
-                  update(index, { cooldownGroup: event.target.value })
+                  update(index, {
+                    avoidClaims: event.target.value
+                      .split("\n")
+                      .map((line) => line.trim())
+                      .filter(Boolean),
+                  })
                 }
               />
+            </Field>
+            <Field label="适用回复模式">
+              <div className="flex flex-wrap gap-2 text-sm">
+                {SEED_RESPONSE_MODES.map((mode) => (
+                  <label key={mode} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={seed.allowedResponseModes.includes(mode)}
+                      onChange={(event) => {
+                        const next = toggleListValue(
+                          seed.allowedResponseModes,
+                          mode,
+                          event.target.checked,
+                        );
+                        if (next.length === 0) return;
+                        update(index, { allowedResponseModes: next });
+                      }}
+                    />
+                    {mode}
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <Field label="能量档 energyFit">
+              <div className="flex flex-wrap gap-2 text-sm">
+                {SEED_ENERGY_LEVELS.map((level) => (
+                  <label key={level} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={seed.energyFit.includes(level)}
+                      onChange={(event) => {
+                        const next = toggleListValue(
+                          [...seed.energyFit],
+                          level,
+                          event.target.checked,
+                        );
+                        if (next.length === 0) return;
+                        update(index, {
+                          energyFit: SEED_ENERGY_LEVELS.filter((item) =>
+                            next.includes(item),
+                          ),
+                        });
+                      }}
+                    />
+                    {level}
+                  </label>
+                ))}
+              </div>
+            </Field>
+            <Field label="世界观强度 allowedModes">
+              <div className="flex flex-wrap gap-3 text-sm">
+                {(["W1", "W2"] as const).map((mode) => (
+                  <label key={mode} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={seed.allowedModes.includes(mode)}
+                      onChange={(event) => {
+                        const next = toggleListValue(
+                          [...seed.allowedModes],
+                          mode,
+                          event.target.checked,
+                        );
+                        if (next.length === 0) return;
+                        update(index, {
+                          allowedModes: (["W1", "W2"] as const).filter((item) =>
+                            next.includes(item),
+                          ),
+                        });
+                      }}
+                    />
+                    {mode}
+                  </label>
+                ))}
+              </div>
             </Field>
             <button
               type="button"
@@ -557,17 +683,30 @@ export function ValidationNotice({
   blocking,
   warnings,
 }: {
-  blocking: string[];
-  warnings: string[];
+  /** 保存后不可启用的单条资产（§13.6.6）。 */
+  blocking: Array<{ kind: string; id: string }>;
+  /** 软约束 / 死种子等警告，不阻塞整份保存。 */
+  warnings: Array<{ code: string; message: string }>;
 }) {
   if (blocking.length === 0 && warnings.length === 0) return null;
+
+  const blockingLabels = blocking.map(
+    (item) => `${item.kind} ${item.id} 无法启用`,
+  );
+
   return (
     <div className="space-y-2">
       {blocking.length > 0 ? (
-        <Notice tone="error">保存被阻止：{blocking.join("；")}</Notice>
+        <Notice tone="error">以下条目无法启用：{blockingLabels.join("；")}</Notice>
       ) : null}
       {warnings.length > 0 ? (
-        <Notice tone="warning">{warnings.join("；")}</Notice>
+        <Notice tone="warning">
+          <ul className="list-disc space-y-1 pl-4">
+            {warnings.map((issue, index) => (
+              <li key={`${issue.code}-${index}`}>{issue.message}</li>
+            ))}
+          </ul>
+        </Notice>
       ) : null}
     </div>
   );

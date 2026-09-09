@@ -24,6 +24,7 @@ import {
   priorContextBeforeUserMessage,
 } from "../memory/candidate-extractor";
 import { prepareSharedTurnContext, applyBehaviorTraceAfterContext } from "./prepare-turn";
+import { sanitizeForSpeech } from "../speech/sanitize-for-speech";
 import {
   conversationRepository,
   memoryRepository,
@@ -265,12 +266,13 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     if (outcome.status === "fulfilled") {
       const result = outcome.value;
       const assistantMessageId = `msg-${randomUUID()}`;
+      // Run 保留供应商原文；对话气泡 / 未来 TTS 只用可播报正文。
+      const spoken = sanitizeForSpeech(result.text);
 
       assistantMessages.push({
         id: assistantMessageId,
         role: "assistant",
-        // 完整原文，绝不截断或改写。
-        content: result.text,
+        content: spoken.text,
         createdAt: completedAt,
         runId,
         modelSlotId: slot.id,
@@ -327,8 +329,8 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
         contextSnapshotId: snapshot.id,
         laneContextHash: snapshot.hash,
         status: "succeeded",
-        text: result.text,
-        displayText: result.text,
+        text: spoken.text,
+        displayText: spoken.text,
         finishReason: result.finishReason,
         usage: result.usage,
         latencyMs: result.latencyMs,

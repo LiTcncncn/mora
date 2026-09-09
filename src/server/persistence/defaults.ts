@@ -61,7 +61,7 @@ export function buildDefaultSettings(
     ...structuredClone(readSeedPersona()),
     id: personaId,
     profileId,
-    name: `MORA Default（${profileName}）`,
+    name: `ZHAKA Default（${profileName}）`,
     createdAt: timestamp,
     updatedAt: timestamp,
   };

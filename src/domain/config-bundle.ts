@@ -1,9 +1,35 @@
 import { z } from "zod";
-import { isoDateTimeSchema } from "./common";
-import { fewShotSampleSchema } from "./fewshot";
+import { energyLevelSchema, idSchema, isoDateTimeSchema } from "./common";
 import { personaSchema } from "./persona";
 import { promptPresetSchema } from "./prompt";
 import { settingsDataSchema } from "./settings";
+
+/**
+ * v1 配置包内嵌的旧 few-shot 样本格式。
+ * 仅用于解析历史导出文件并在 v1→v2 迁移时转成行为示例卡候选。
+ */
+const legacyFewShotEnergyScopeSchema = z.union([
+  energyLevelSchema,
+  z.literal("any"),
+]);
+
+const legacyFewShotWorldviewSchema = z.enum(["none", "L1", "L2"]);
+
+export const legacyFewShotSampleSchema = z.object({
+  id: idSchema,
+  profileId: idSchema,
+  scene: z.string().min(1).max(200),
+  energy: legacyFewShotEnergyScopeSchema,
+  worldview: legacyFewShotWorldviewSchema,
+  keywords: z.array(z.string()).max(40),
+  user: z.string().min(1).max(1000),
+  reply: z.string().min(1).max(2000),
+  note: z.string().max(500),
+  enabled: z.boolean().optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type LegacyFewShotSample = z.infer<typeof legacyFewShotSampleSchema>;
 
 /**
  * 行为配置包：只含设置、Persona 与 Prompt Preset。
@@ -18,23 +44,19 @@ export const moraConfigBundleSchema = z.object({
   personas: z.array(personaSchema),
   promptPresets: z.array(promptPresetSchema),
   /**
-   * 早于 few-shot 模块导出的配置文件没有这个字段。
-   * 字段缺失表示“这份配置不管样本”，导入时保留现有样本；
-   * 显式给空数组才表示清空。
+   * 旧版 few-shot 样本（已退役）。字段缺失表示「不管样本」；
+   * 显式空数组表示「清空样本」；有内容则在 v2 迁移时转成示例卡候选。
    */
-  fewShotSamples: z.array(fewShotSampleSchema).optional(),
+  fewShotSamples: z.array(legacyFewShotSampleSchema).optional(),
 });
 export type MoraConfigBundle = z.infer<typeof moraConfigBundleSchema>;
 
 export interface ConfigImportSummary {
   personaCount: number;
   promptPresetCount: number;
-  /** null 表示该配置文件不含样本字段，导入后保留现有样本。 */
-  fewShotSampleCount: number | null;
   modelSlots: Array<{ label: string; provider: string; modelId: string }>;
   sourceProfileName: string;
   exportedAt: string;
   replacesPersonaCount: number;
   replacesPromptPresetCount: number;
-  replacesFewShotSampleCount: number;
 }

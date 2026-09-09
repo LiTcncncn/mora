@@ -1,6 +1,6 @@
-# MORA Lab
+# ZHAKA Lab
 
-MORA Lab 是一个**本地单机 Web 实验台**，用于调试树懒气质的低负担陪伴式对话，并在同一句输入下并行比较多个模型供应商的表现。
+ZHAKA Lab 是一个**本地单机 Web 实验台**，用于调试树懒气质的低负担陪伴式对话，并在同一句输入下并行比较多个模型供应商的表现。
 
 它不是最终消费者产品界面。Prompt Studio、Context Inspector、Run Inspector 都是实验工具。
 

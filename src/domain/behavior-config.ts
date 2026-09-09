@@ -23,6 +23,10 @@ import {
   worldviewSeedSchema,
   worldviewSettingsSchema,
 } from "./worldview-v2";
+import {
+  buildDefaultQuestionPolicy,
+  questionPolicySettingsSchema,
+} from "./question-policy";
 
 /**
  * §13：Behavior Config v2。行为规则的唯一事实源。
@@ -96,7 +100,6 @@ export const energyBudgetSchema = z.object({
   targetMaxChars: z.number().int().positive().max(20_000),
   hardMaxChars: z.number().int().positive().max(20_000),
   maxSentences: z.number().int().positive().max(200),
-  defaultMaxQuestions: z.number().int().min(0).max(2),
   defaultMaxActions: z.number().int().min(0).max(2),
   providerMaxOutputTokens: z.number().int().positive().max(200_000),
 }).strict();
@@ -174,6 +177,7 @@ const behaviorConfigBodyShape = {
   brandCanon: brandCanonSettingsSchema,
   router: turnRouterSettingsSchema,
   requestFlags: requestFlagSettingsSchema,
+  questionPolicy: questionPolicySettingsSchema,
   energy: energyV2SettingsSchema,
   majorEvent: majorEventSettingsSchema,
   safety: safetySettingsSchema,
@@ -204,12 +208,70 @@ export const BEHAVIOR_CONFIG_HASHABLE_KEYS = Object.keys(
   behaviorConfigBodyShape,
 ).sort() as Array<keyof BehaviorConfigHashable>;
 
-/**
- * 活动配置：不含 `exportedAt`。该字段只在导出时写入（§13）。
- * 把它排除在活动配置之外，才能让「同一份配置连续导出两次得到相同 hash」
- * 这条要求在类型层面就成立。
- */
-export const behaviorConfigV2Schema = z
+function stripRecordKey(
+  record: Record<string, unknown> | undefined,
+  key: string,
+): void {
+  if (record && key in record) delete record[key];
+}
+
+function migrateQuestionPolicy(raw: Record<string, unknown>): void {
+  if (!raw.questionPolicy || typeof raw.questionPolicy !== "object") {
+    raw.questionPolicy = buildDefaultQuestionPolicy();
+    return;
+  }
+
+  const policy = raw.questionPolicy as Record<string, unknown>;
+
+  if ("neutralPermission" in policy && !("neutralMode" in policy)) {
+    const permission = policy.neutralPermission;
+    if (permission === "never") {
+      policy.neutralMode = "never";
+    } else {
+      policy.neutralMode = "probabilistic";
+      policy.neutralMustAskProbability = 0.5;
+    }
+    delete policy.neutralPermission;
+  }
+
+  if (typeof policy.neutralMustAskProbability !== "number") {
+    policy.neutralMustAskProbability = 0.5;
+  }
+}
+
+/** 读取旧配置时剥离已废弃的提问字段，并补齐 questionPolicy。 */
+export function normalizeLegacyBehaviorConfig(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const clone = structuredClone(raw) as Record<string, unknown>;
+
+  migrateQuestionPolicy(clone);
+
+  const strategies = clone.strategies;
+  if (strategies && typeof strategies === "object") {
+    for (const policy of Object.values(
+      strategies as Record<string, Record<string, unknown>>,
+    )) {
+      stripRecordKey(policy, "defaultMaxQuestions");
+      stripRecordKey(policy, "allowInviteOverride");
+    }
+  }
+
+  const energy = clone.energy;
+  if (energy && typeof energy === "object") {
+    const budgets = (energy as Record<string, unknown>).budgets;
+    if (budgets && typeof budgets === "object") {
+      for (const budget of Object.values(
+        budgets as Record<string, Record<string, unknown>>,
+      )) {
+        stripRecordKey(budget, "defaultMaxQuestions");
+      }
+    }
+  }
+
+  return clone;
+}
+
+const behaviorConfigV2BodySchema = z
   .object({
     schemaVersion: z.literal(BEHAVIOR_CONFIG_SCHEMA_VERSION),
     kind: behaviorConfigKindSchema,
@@ -225,6 +287,16 @@ export const behaviorConfigV2Schema = z
     ...behaviorConfigBodyShape,
   })
   .strict();
+
+/**
+ * 活动配置：不含 `exportedAt`。该字段只在导出时写入（§13）。
+ * 把它排除在活动配置之外，才能让「同一份配置连续导出两次得到相同 hash」
+ * 这条要求在类型层面就成立。
+ */
+export const behaviorConfigV2Schema = z.preprocess(
+  normalizeLegacyBehaviorConfig,
+  behaviorConfigV2BodySchema,
+);
 export type BehaviorConfigV2 = z.infer<typeof behaviorConfigV2Schema>;
 
 /** §13.6.7：完整导出时附带 Lab 运行时（Persona / Preset / Settings），不含 API Key。 */
@@ -238,13 +310,18 @@ export const labRuntimeExportSchema = z
 export type LabRuntimeExport = z.infer<typeof labRuntimeExportSchema>;
 
 /** 导出文件在活动配置之上多一个 `exportedAt`（§13.6.3 明确排除在 hash 外）。 */
-export const behaviorConfigExportSchema = behaviorConfigV2Schema
+const behaviorConfigExportBodySchema = behaviorConfigV2BodySchema
   .extend({
     exportedAt: z.string().datetime({ offset: true }),
     /** 完整导出时包含；单库与世界观库导出不含此字段。 */
     labRuntime: labRuntimeExportSchema.optional(),
   })
   .strict();
+
+export const behaviorConfigExportSchema = z.preprocess(
+  normalizeLegacyBehaviorConfig,
+  behaviorConfigExportBodySchema,
+);
 export type BehaviorConfigExport = z.infer<typeof behaviorConfigExportSchema>;
 
 /**
@@ -281,7 +358,7 @@ export type ExampleLibraryExport = z.infer<typeof exampleLibraryExportSchema>;
  * 用 kind 而不是靠字段存在性猜测——猜测在两种 kind 字段重叠时会选错路径。
  */
 export const anyV2ExportSchema = z.discriminatedUnion("kind", [
-  behaviorConfigExportSchema,
+  behaviorConfigExportBodySchema,
   worldviewLibraryExportSchema,
   exampleLibraryExportSchema,
 ]);
@@ -312,7 +389,6 @@ function buildDefaultEnergySettings(): EnergyV2Settings {
         targetMaxChars: 100,
         hardMaxChars: 140,
         maxSentences: 3,
-        defaultMaxQuestions: 0,
         defaultMaxActions: 0,
         providerMaxOutputTokens: 180,
       },
@@ -322,7 +398,6 @@ function buildDefaultEnergySettings(): EnergyV2Settings {
         targetMaxChars: 140,
         hardMaxChars: 180,
         maxSentences: 3,
-        defaultMaxQuestions: 0,
         defaultMaxActions: 0,
         providerMaxOutputTokens: 260,
       },
@@ -332,7 +407,6 @@ function buildDefaultEnergySettings(): EnergyV2Settings {
         targetMaxChars: 220,
         hardMaxChars: 300,
         maxSentences: 5,
-        defaultMaxQuestions: 1,
         defaultMaxActions: 1,
         providerMaxOutputTokens: 460,
       },
@@ -342,7 +416,6 @@ function buildDefaultEnergySettings(): EnergyV2Settings {
         targetMaxChars: 420,
         hardMaxChars: 600,
         maxSentences: 8,
-        defaultMaxQuestions: 2,
         defaultMaxActions: 2,
         providerMaxOutputTokens: 900,
       },
@@ -445,6 +518,7 @@ export function buildDefaultBehaviorConfig(
       maxRetries: 1,
     },
     requestFlags: buildDefaultRequestFlagSettings(),
+    questionPolicy: buildDefaultQuestionPolicy(),
     energy: buildDefaultEnergySettings(),
     majorEvent: {
       enabled: true,
@@ -480,7 +554,7 @@ function buildDefaultStarterCanonFacts(): BehaviorConfigV2["canonFacts"] {
     {
       id: "fact-origin-tree",
       category: "origin",
-      content: "MORA 出生在亚马逊雨林深处的一棵树上，那里常年湿热，树冠层光线斑驳。",
+      content: "ZHAKA 出生在亚马逊雨林深处的一棵树上，那里常年湿热，树冠层光线斑驳。",
       aliases: ["出生", "出生地", "你在哪出生", "从哪里来"],
       enabled: true,
       version: 1,
@@ -488,7 +562,7 @@ function buildDefaultStarterCanonFacts(): BehaviorConfigV2["canonFacts"] {
     {
       id: "fact-friend-plan",
       category: "relationship",
-      content: "MORA 通过「远方朋友计划」借住在用户这里，像雨林里的寄居关系一样临时落脚。",
+      content: "ZHAKA 通过「远方朋友计划」借住在用户这里，像雨林里的寄居关系一样临时落脚。",
       aliases: ["朋友计划", "为什么在这", "怎么来的"],
       enabled: true,
       version: 1,
@@ -496,7 +570,7 @@ function buildDefaultStarterCanonFacts(): BehaviorConfigV2["canonFacts"] {
     {
       id: "fact-friend-flash-butterfly",
       category: "relationship",
-      content: "闪蝶是 MORA 在雨林里的朋友之一，翅膀张开时很亮，常常说着说着就飞走了。",
+      content: "闪蝶是 ZHAKA 在雨林里的朋友之一，翅膀张开时很亮，常常说着说着就飞走了。",
       aliases: ["闪蝶", "蝴蝶朋友", "你的朋友"],
       enabled: true,
       version: 1,
@@ -576,7 +650,7 @@ function buildDefaultStarterWorldviewSeeds(): BehaviorConfigV2["worldviewSeeds"]
       triggerDescription:
         "用户正在经历很强的低落或情绪，希望有人陪着熬过去，还没要求具体办法",
       memory:
-        "MORA 见过很多暴雨。开始时像永远不会停，后来往往不是突然放晴，而是先小一点、慢下来一点。",
+        "ZHAKA 见过很多暴雨。开始时像永远不会停，后来往往不是突然放晴，而是先小一点、慢下来一点。",
       attitude:
         "不承诺立刻变好，只陪用户等强度降下来一点。不用现在就想通全部。",
       allowedResponseModes: ["COMPANION"],
@@ -596,7 +670,7 @@ function buildDefaultStarterWorldviewSeeds(): BehaviorConfigV2["worldviewSeeds"]
       triggerDescription:
         "用户在深夜觉得一切都很糟，脑子停不下来，或越躺越想",
       memory:
-        "入夜后虫鸣和树叶声会比白天更响——MORA 觉得人脑子里的烦恼有时也会被夜色调大音量。",
+        "入夜后虫鸣和树叶声会比白天更响——ZHAKA 觉得人脑子里的烦恼有时也会被夜色调大音量。",
       attitude:
         "承认夜里的难受，暂缓重大结论；不必今晚就想通全部。",
       allowedResponseModes: ["COMPANION"],
@@ -653,7 +727,7 @@ function buildDefaultStarterWorldviewSeeds(): BehaviorConfigV2["worldviewSeeds"]
       triggerDescription:
         "用户说自己不想说话、没话可说、不知道说什么、只想安静待着",
       memory:
-        "MORA 问蛇为什么一天都不说话。蛇说：「没有想说的。」MORA 后来很喜欢这句话。",
+        "ZHAKA 问蛇为什么一天都不说话。蛇说：「没有想说的。」ZHAKA 后来很喜欢这句话。",
       attitude: "没有话也可以完整地待着，不追问，不硬找话题。",
       allowedResponseModes: ["COMPANION"],
       energyFit: ["E0", "E1", "E2"],
@@ -735,10 +809,45 @@ function buildDefaultStarterExampleCards(): BehaviorConfigV2["exampleCards"] {
       questionPreferences: ["invite", "neutral"],
       majorEventCompatible: false,
       majorEventTypes: [],
-      topicTags: ["聊", "说说"],
+      topicTags: ["聊", "说说", "闲"],
       user: "也没什么事，就是想随便聊聊。",
       idealReply: "行啊，你起头，我跟着。",
       demonstrates: ["轻承接", "不抢话题"],
+      evaluatorWarnings: [],
+      reviewStatus: "approved",
+      enabled: true,
+      version: 1,
+    },
+    {
+      id: "card-companion-idle-001",
+      name: "很闲没话题",
+      responseMode: "COMPANION",
+      energyRange: ["E2", "E3"],
+      questionPreferences: ["neutral", "avoid"],
+      majorEventCompatible: false,
+      majorEventTypes: [],
+      topicTags: ["闲", "无聊", "没话题"],
+      user: "我也不知道聊什么，我现在很闲。",
+      idealReply: "嗯，那瞎扯也行。",
+      demonstrates: ["短接", "不做许可式安抚"],
+      evaluatorWarnings: [],
+      reviewStatus: "approved",
+      enabled: true,
+      version: 1,
+    },
+    {
+      id: "card-companion-handoff-001",
+      name: "你说点什么",
+      responseMode: "COMPANION",
+      energyRange: ["E2", "E3"],
+      questionPreferences: ["neutral", "avoid", "invite"],
+      majorEventCompatible: false,
+      majorEventTypes: [],
+      topicTags: ["你说", "好玩", "怪", "故事"],
+      user: "你说点什么吧，聊点怪的。",
+      idealReply:
+        "树懒一周大概只爬一百来米，急也急不到哪去。有回我盯着一片叶子看半天，回来才发现天都暗了。",
+      demonstrates: ["主动贡献内容", "带一句具体事实", "不把球踢回用户"],
       evaluatorWarnings: [],
       reviewStatus: "approved",
       enabled: true,
@@ -754,8 +863,9 @@ function buildDefaultStarterExampleCards(): BehaviorConfigV2["exampleCards"] {
       majorEventTypes: [],
       topicTags: ["天气"],
       user: "今天适合出门吗？",
-      idealReply: "看你那边实际天气，我这边只能猜个大概：太热就慢点走。",
-      demonstrates: ["先答再问", "不编造本地实况"],
+      idealReply:
+        "我看不到窗外实况，瞎猜天气没用。你要是热或闷，就少折腾点。",
+      demonstrates: ["先答", "不编造本地实况", "不说我这边你那边"],
       evaluatorWarnings: [],
       reviewStatus: "approved",
       enabled: true,
@@ -772,6 +882,7 @@ export function extractHashable(
     brandCanon: config.brandCanon,
     router: config.router,
     requestFlags: config.requestFlags,
+    questionPolicy: config.questionPolicy,
     energy: config.energy,
     majorEvent: config.majorEvent,
     safety: config.safety,
@@ -801,6 +912,8 @@ export const DEPRECATED_CONFIG_KEYS: readonly string[] = [
   "saveContextSnapshot",
   "saveSettingsSnapshot",
   "saveStandardizedProviderResponse",
+  "defaultMaxQuestions",
+  "allowInviteOverride",
 ];
 
 export const ENERGY_LEVEL_ORDER = energyLevelSchema.options;

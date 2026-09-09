@@ -7,7 +7,7 @@ export default function HomePage() {
     <>
       <PageHeader
         title="总览"
-        description="MORA Lab 在本机运行，所有数据保存在项目的 data 数据目录中。"
+        description="ZHAKA Lab 在本机运行，所有数据保存在项目的 data 数据目录中。"
       />
       <Overview />
       <div className="mt-6 flex flex-wrap gap-2">

@@ -15,7 +15,6 @@ export type StoreFileName =
   | "memories"
   | "conversations"
   | "prompt-presets"
-  | "fewshot"
   | "runs"
   | "evals"
   | "behavior-config";

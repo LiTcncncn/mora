@@ -4,8 +4,8 @@ import { ProfileProvider } from "@/components/app-shell/profile-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MORA Lab",
-  description: "MORA 本地多模型陪伴对话实验台",
+  title: "ZHAKA Lab",
+  description: "ZHAKA 本地多模型陪伴对话实验台",
 };
 
 export default function RootLayout({

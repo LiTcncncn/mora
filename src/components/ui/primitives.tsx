@@ -62,10 +62,13 @@ export function EmptyState({ children }: { children: ReactNode }) {
 export function Collapsible({
   title,
   defaultOpen = false,
+  keepMounted = false,
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  /** 收起时仍保留子树挂载，避免折叠区内的表单 state / ref 丢失。 */
+  keepMounted?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -80,7 +83,11 @@ export function Collapsible({
         <span>{title}</span>
         <span className="text-[var(--color-muted)]">{open ? "收起" : "展开"}</span>
       </button>
-      {open ? <div className="border-t p-3">{children}</div> : null}
+      {keepMounted ? (
+        <div className={open ? "border-t p-3" : "hidden"}>{children}</div>
+      ) : open ? (
+        <div className="border-t p-3">{children}</div>
+      ) : null}
     </div>
   );
 }

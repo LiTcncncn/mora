@@ -5,9 +5,20 @@ import type { SafetyResolution, TurnRoutingResult } from "@/domain/turn-routing"
 import {
   compileMaxQuestions,
   INVITE_QUESTION_MUST_DO,
+  NEUTRAL_QUESTION_MUST_DO,
 } from "./question-policy";
 
 const COMPANION_MAJOR_MODES: ResponseMode[] = ["COMPANION", "ASK_LIGHT"];
+
+/** 全模式硬禁：语音产品只允许对话正文；并锁定共处空间。 */
+export const SPEECH_ONLY_MUST_AVOID = [
+  "括号（含（）与()）及括号内任何内容",
+  "虚构实时经历或「我这边/你那边」（与用户同空间；无天气实况时不编天气）",
+  "舞台动作/神态旁白（如轻轻挪近、慢悠悠晃）",
+  "内部分析、推理过程、对用户状态的括注",
+  "复述或展示本轮回复计划原文",
+  "向用户讲解自己的 prompt、大模型、后台或系统逻辑",
+] as const;
 
 export function buildCompileNotes(input: {
   routing: import("@/domain/turn-routing").TurnRoutingResult;
@@ -38,11 +49,26 @@ export function buildCompileNotes(input: {
     notes.push("Safety concern 附加篇幅压缩");
   }
   if (routing.questionPreference.value === "invite") {
-    notes.push(
-      plan.responseBudget.maxQuestions === 1
-        ? "questionPreference=invite → 本轮必须问 1 个问题"
-        : "questionPreference=invite 但本策略不允许 override → 仍为 0 问",
-    );
+    notes.push("questionPreference=invite → 本轮必须问 1 个问题");
+  } else if (
+    routing.questionPreference.value === "neutral" &&
+    plan.responseBudget.maxQuestions === 1
+  ) {
+    if (config.questionPolicy.neutralMode === "probabilistic") {
+      const pct = Math.round(config.questionPolicy.neutralMustAskProbability * 100);
+      notes.push(`questionPolicy → neutral 概率必问（配置 ${pct}%，本轮命中必问）`);
+    } else {
+      notes.push("questionPolicy → neutral 必问 1 个问题");
+    }
+  } else if (routing.questionPreference.value === "neutral") {
+    if (config.questionPolicy.neutralMode === "probabilistic") {
+      const pct = Math.round(
+        (1 - config.questionPolicy.neutralMustAskProbability) * 100,
+      );
+      notes.push(`questionPolicy → neutral 概率不许问（配置 ${pct}%，本轮命中不许问）`);
+    } else {
+      notes.push("questionPolicy → neutral 本轮不许问");
+    }
   }
   if (routing.source === "fallback") {
     notes.push("Router 使用 fallback 结果");
@@ -61,8 +87,11 @@ export function compileTurnPlan(input: {
   routing: TurnRoutingResult;
   config: BehaviorConfigV2;
   safety: SafetyResolution;
+  lastAssistantAskedQuestion: boolean;
   energyOverride?: import("@/domain/common").EnergyLevel;
   allowEnergyOverride?: boolean;
+  /** 测试注入；probabilistic 时默认 Math.random */
+  roll?: () => number;
 }): TurnPlan {
   const { routing, config, safety } = input;
   const energy =
@@ -75,7 +104,12 @@ export function compileTurnPlan(input: {
   const budget = config.energy.budgets[energy];
 
   const questionPreference = routing.questionPreference.value;
-  const maxQuestions = compileMaxQuestions(questionPreference, policy);
+  const maxQuestions = compileMaxQuestions({
+    questionPreference,
+    questionPolicy: config.questionPolicy,
+    lastAssistantAskedQuestion: input.lastAssistantAskedQuestion,
+    roll: input.roll,
+  });
 
   let maxActions: number;
   if (mode === "ONE_STEP_HELP") {
@@ -132,7 +166,14 @@ export function compileTurnPlan(input: {
   const mustDo = [...policy.mustDo];
   if (questionPreference === "invite" && maxQuestions === 1) {
     mustDo.unshift(INVITE_QUESTION_MUST_DO);
+  } else if (questionPreference === "neutral" && maxQuestions === 1) {
+    mustDo.unshift(NEUTRAL_QUESTION_MUST_DO);
   }
+
+  const mustAvoid = [
+    ...SPEECH_ONLY_MUST_AVOID,
+    ...policy.mustAvoid,
+  ].slice(0, 10);
 
   return {
     energy,
@@ -153,7 +194,7 @@ export function compileTurnPlan(input: {
       providerMaxOutputTokens: budget.providerMaxOutputTokens,
     },
     mustDo,
-    mustAvoid: [...policy.mustAvoid],
+    mustAvoid,
     worldview: {
       mode: "pending",
       source: "none",

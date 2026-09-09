@@ -37,7 +37,7 @@ function fact(overrides: Partial<WorldviewCanonFact> = {}): WorldviewCanonFact {
   return {
     id: "fact-origin-tree",
     category: "origin",
-    content: "MORA 出生在雨林深处的一棵树上。",
+    content: "ZHAKA 出生在雨林深处的一棵树上。",
     aliases: ["出生树", "你在哪出生"],
     enabled: true,
     version: 1,
@@ -224,8 +224,8 @@ describe("configHash", () => {
   it("固定输入产出固定 hash", () => {
     // 写死期望值以防实现漂移（与 §9.5.4 的 FNV-1a 同样处理）。
     // 改动 §13.6.3 的计算方式时，这条断言必须连同理由一起更新。
-    // 默认 Safety 规则表与 urgent 占位文案纳入 hash。
-    expect(computeConfigHash(baseConfig())).toBe("ffc1e29e3978ea7d");
+    // questionPolicy 默认 probabilistic；hash 随 schema 变更更新。
+    expect(computeConfigHash(baseConfig())).toBe("51f530418c74e5a7");
   });
 
   it("hash 长度固定为 16 个十六进制字符", () => {
@@ -557,6 +557,23 @@ describe("校验路径差异", () => {
     expect(resolveForImport(issues).rejected).toBe(false);
   });
 
+  it("avoidClaims 里写出禁词本身不算违规（负向指令）", () => {
+    const issues = validateBehaviorConfig(
+      baseConfig({
+        worldviewSeeds: [
+          seed({
+            avoidClaims: ["不要用甘多卡、海岸、沙滩等已废弃场景"],
+          }),
+        ],
+      }),
+    );
+
+    expect(issues.filter((issue) => issue.category === "forbidden_term")).toEqual(
+      [],
+    );
+    expect(resolveForSave(issues).ok).toBe(true);
+  });
+
   it("死种子在保存路径上只警告并阻塞启用，不拒绝保存", () => {
     const issues = validateBehaviorConfig(
       baseConfig({
@@ -569,18 +586,6 @@ describe("校验路径差异", () => {
     expect(resolution.blockedFromEnabling.map((ref) => ref.id)).toContain(
       "seed-rain-001",
     );
-  });
-
-  it("allowInviteOverride 违规被判为硬约束", () => {
-    const config = baseConfig();
-    config.strategies.CLOSE.allowInviteOverride = true;
-
-    const issues = validateBehaviorConfig(config);
-    expect(issues.map((issue) => issue.code)).toContain(
-      "strategy.invite_override_forbidden",
-    );
-    expect(resolveForSave(issues).ok).toBe(false);
-    expect(resolveForImport(issues).rejected).toBe(true);
   });
 
   it("已废弃键名被指名拒绝", () => {

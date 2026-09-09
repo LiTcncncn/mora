@@ -342,7 +342,17 @@ function TurnPlanTraceSection({ trace }: { trace: BehaviorTrace }) {
         </li>
         <li>
           篇幅 {budget.targetMinChars}–{budget.targetMaxChars} 字 · {budget.maxSentences}{" "}
-          句 · 问题 {budget.maxQuestions} · 动作 {budget.maxActions}
+          句 · 问题 {budget.maxQuestions}
+          {turnPlan.questionPreference === "invite" && budget.maxQuestions === 1
+            ? "（invite 必问）"
+            : turnPlan.questionPreference === "neutral" &&
+                budget.maxQuestions === 1
+              ? "（neutral 必问）"
+              : turnPlan.questionPreference === "neutral" &&
+                  budget.maxQuestions === 0
+                ? "（neutral 不许问）"
+                : ""}{" "}
+          · 动作 {budget.maxActions}
         </li>
         <li>
           世界观 {labelOf(WORLDVIEW_MODE_LABELS, turnPlan.worldview.mode)}

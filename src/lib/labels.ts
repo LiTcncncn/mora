@@ -49,6 +49,12 @@ export const QUESTION_PREFERENCE_LABELS: Record<string, string> = {
   avoid: "avoid 避免提问",
 };
 
+export const NEUTRAL_QUESTION_MODE_LABELS: Record<string, string> = {
+  never: "never 一律不许问",
+  must_ask: "must_ask 一律必问",
+  probabilistic: "probabilistic 按概率二选一",
+};
+
 export const WORLDVIEW_RELATION_LABELS: Record<string, string> = {
   required: "required 必须回应世界观",
   eligible: "eligible 可自然带入",
@@ -76,8 +82,8 @@ export const SCHEDULER_BRANCH_LABELS: Record<string, string> = {
 
 export const WORLDVIEW_MODE_LABELS: Record<string, string> = {
   W0: "W0 不显性世界观",
-  W1: "W1 一句 MORA 平行感受",
-  W2: "W2 一小段 MORA 平行感受",
+  W1: "W1 一句 ZHAKA 平行感受",
+  W2: "W2 一小段 ZHAKA 平行感受",
   W3: "W3 直接回答 Canon",
   pending: "pending 待定",
 };
@@ -121,20 +127,6 @@ export const CONTEXT_SECTION_LABELS: Record<string, string> = {
   response_contract: "response_contract 回复契约",
   custom_experiment: "custom_experiment 自定义实验分区",
   user_input: "user_input 用户当前这句话",
-};
-
-export const FEW_SHOT_WORLDVIEW_LABELS: Record<string, string> = {
-  none: "none 不带世界观",
-  L1: "L1 非人类体感",
-  L2: "L2 雨林联想",
-};
-
-export const FEW_SHOT_ENERGY_SCOPE_LABELS: Record<string, string> = {
-  any: "any 任何档位",
-  E0: "E0 几乎没电",
-  E1: "E1 低电量",
-  E2: "E2 一般",
-  E3: "E3 有余力",
 };
 
 export const MEMORY_TYPE_LABELS: Record<string, string> = {

@@ -18,8 +18,8 @@ const WORLDVIEW_HINT: Record<
   string
 > = {
   W0: "本轮不显性提世界观",
-  W1: "W1 一句 MORA 平行感受（融入情绪）",
-  W2: "W2 一小段 MORA 平行感受（融入情绪）",
+  W1: "W1 一句 ZHAKA 平行感受（回忆/态度，非实时现场）",
+  W2: "W2 一小段 ZHAKA 平行感受（回忆/态度，非实时现场）",
   W3: "W3 用户追问设定时才直接回答",
 };
 
@@ -38,7 +38,7 @@ export function renderTurnPlanText(
     "【本轮回复计划】",
     `能量：${plan.energy}（${energyLabel}）`,
     `主要策略：${plan.responseMode}`,
-    `提问偏好：${prefLabel}（Router 判定，优先于策略默认）`,
+    `提问偏好：${prefLabel}（Router 判定）`,
     `重大事件：${plan.majorEvent.matched ? "是" : "否"}`,
     `目标长度：${budget.targetMinChars}–${budget.targetMaxChars} 字，最多 ${budget.maxSentences} 句`,
     `问题：${budget.maxQuestions} 个（全产品每轮最多 ${HARD_MAX_QUESTIONS_PER_TURN} 个）`,
@@ -54,8 +54,19 @@ export function renderTurnPlanText(
     lines.push(
       "提问执行：用户邀请提问，本轮必须问一个轻、具体、好答的问题，不可省略。",
     );
+  } else if (
+    plan.questionPreference === "neutral" &&
+    budget.maxQuestions === 1
+  ) {
+    lines.push(
+      "提问执行：neutral 本轮必须问一个轻、具体、好答的问题，不可省略。",
+    );
   } else if (budget.maxQuestions === 0) {
-    lines.push("提问执行：本轮不要向用户提问。");
+    if (plan.questionPreference === "neutral") {
+      lines.push("提问执行：neutral 本轮不许向用户提问。");
+    } else {
+      lines.push("提问执行：本轮不要向用户提问。");
+    }
   }
 
   lines.push(
@@ -88,11 +99,18 @@ export function renderResponseContract(
   contract: BehaviorConfigV2["responseContract"],
 ): string {
   const lines = [
-    "输出格式约束：",
+    "输出格式约束（面向语音播报，违反即失败）：",
+    "只输出要对用户说的话，必须是可直接朗读的对话正文。",
+    "禁止任何括号（含全角（）与半角 ()）及其内容。",
+    "禁止舞台指示、动作描写、神态旁白（如「轻轻挪近」「慢悠悠地晃了晃」写成括号或括号外的动作说明）。",
+    "禁止输出内部分析、推理过程、元评论、对用户状态的括注说明。",
+    "禁止复述或展示【本轮回复计划】里的句子（如「必须问…不可省略」）。",
     contract.forbidHeadings ? "不要使用 Markdown 标题。" : "",
     contract.forbidBulletLists ? "不要使用项目符号列表。" : "",
     contract.forbidInternalAnalysis ? "不要输出内部分析或元评论。" : "",
-    contract.forbidRoleLabels ? "不要标注角色名前缀。" : "",
+    contract.forbidRoleLabels
+      ? "不要标注角色名前缀（如「ZHAKA：」）。"
+      : "",
     `每条回复 emoji 不超过 ${contract.maxEmojiPerReply} 个。`,
   ];
   return lines.filter(Boolean).join("\n");

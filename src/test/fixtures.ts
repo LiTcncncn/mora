@@ -6,7 +6,6 @@ import {
 } from "@/domain/settings";
 import { storeEnvelopeSchema } from "@/domain/store";
 import type { Conversation, ConversationMessage } from "@/domain/conversation";
-import type { FewShotSample } from "@/domain/fewshot";
 import type { MemoryItem } from "@/domain/memory";
 import type { RunRecord } from "@/domain/run";
 import { buildDefaultBehaviorConfig } from "@/domain/behavior-config";
@@ -38,7 +37,13 @@ export function seedTurnPlan(userMessage = "今天好累") {
     },
     config.requestFlags,
   );
-  const basePlan = compileTurnPlan({ routing, config, safety });
+  const basePlan = compileTurnPlan({
+    routing,
+    config,
+    safety,
+    lastAssistantAskedQuestion: false,
+    roll: () => 0,
+  });
   return finalizeBehaviorTurn({
     basePlan,
     routing,
@@ -90,26 +95,6 @@ export function makeMemory(overrides: Partial<MemoryItem> = {}): MemoryItem {
     lastUsedAt: null,
     useCount: 0,
     expiresAt: null,
-    ...overrides,
-  };
-}
-
-export function makeFewShotSample(
-  overrides: Partial<FewShotSample> = {},
-): FewShotSample {
-  return {
-    id: "fs-1",
-    profileId: "profile-default",
-    scene: "疲惫不想动",
-    energy: "any",
-    worldview: "none",
-    keywords: ["累"],
-    user: "好累，什么都不想干。",
-    reply: "躺着就躺着吧，又不是比赛。",
-    note: "",
-    enabled: true,
-    createdAt: "2026-08-01T00:00:00.000Z",
-    updatedAt: "2026-08-01T00:00:00.000Z",
     ...overrides,
   };
 }

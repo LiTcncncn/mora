@@ -1,9 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { BehaviorConfigV2 } from "@/domain/behavior-config";
 import type { ProviderId } from "@/domain/common";
 import { RESPONSE_MODES } from "@/domain/behavior-taxonomy";
+import {
+  formatNeutralMustAskPercent,
+  normalizeQuestionPolicyForSave,
+  parseNeutralMustAskPercent,
+  type QuestionPolicySettings,
+} from "@/domain/question-policy";
 import { STRATEGY_RULE_TEXTS } from "@/domain/strategy-policy";
 import {
   Collapsible,
@@ -12,7 +26,7 @@ import {
   SectionTitle,
 } from "@/components/ui/primitives";
 import { api, errorMessage } from "@/lib/api-client";
-import { labelOf, PROVIDER_LABELS } from "@/lib/labels";
+import { labelOf, NEUTRAL_QUESTION_MODE_LABELS, PROVIDER_LABELS } from "@/lib/labels";
 import {
   CanonFactsEditor,
   EnergyBudgetGrid,
@@ -25,32 +39,182 @@ import {
 
 interface BehaviorConfigResponse {
   config: BehaviorConfigV2;
-  warnings: string[];
-  blockedFromEnabling: string[];
+  warnings: Array<{ code: string; message: string }>;
+  blockedFromEnabling: Array<{ kind: string; id: string }>;
   persisted: boolean;
 }
 
 const PROVIDERS: ProviderId[] = ["kimi", "deepseek"];
 
+function QuestionPolicyEditor({
+  questionPolicy,
+  onChange,
+  commitRef,
+}: {
+  questionPolicy: QuestionPolicySettings;
+  onChange: (policy: QuestionPolicySettings) => void;
+  commitRef: RefObject<(() => QuestionPolicySettings) | null>;
+}) {
+  const [mustAskPercentDraft, setMustAskPercentDraft] = useState(() =>
+    formatNeutralMustAskPercent(questionPolicy.neutralMustAskProbability),
+  );
+
+  useEffect(() => {
+    setMustAskPercentDraft(
+      formatNeutralMustAskPercent(questionPolicy.neutralMustAskProbability),
+    );
+  }, [questionPolicy.neutralMustAskProbability, questionPolicy.neutralMode]);
+
+  const commitMustAskPercent = useCallback((): QuestionPolicySettings => {
+    if (questionPolicy.neutralMode !== "probabilistic") {
+      return questionPolicy;
+    }
+    const probability = parseNeutralMustAskPercent(
+      mustAskPercentDraft,
+      Math.round(questionPolicy.neutralMustAskProbability * 100),
+    );
+    const next = normalizeQuestionPolicyForSave({
+      ...questionPolicy,
+      neutralMustAskProbability: probability,
+    });
+    setMustAskPercentDraft(
+      formatNeutralMustAskPercent(next.neutralMustAskProbability),
+    );
+    onChange(next);
+    return next;
+  }, [mustAskPercentDraft, onChange, questionPolicy]);
+
+  useEffect(() => {
+    commitRef.current = commitMustAskPercent;
+    return () => {
+      commitRef.current = null;
+    };
+  }, [commitMustAskPercent, commitRef]);
+
+  const mustAskPercent = parseNeutralMustAskPercent(mustAskPercentDraft, 50);
+  const noAskPercent = 1 - mustAskPercent;
+
+  return (
+    <div className="space-y-3">
+      <Field label="neutral 模式">
+        <select
+          className="field"
+          value={questionPolicy.neutralMode}
+          onChange={(event) =>
+            onChange({
+              ...questionPolicy,
+              neutralMode: event.target
+                .value as QuestionPolicySettings["neutralMode"],
+            })
+          }
+        >
+          <option value="never">
+            {labelOf(NEUTRAL_QUESTION_MODE_LABELS, "never")}
+          </option>
+          <option value="must_ask">
+            {labelOf(NEUTRAL_QUESTION_MODE_LABELS, "must_ask")}
+          </option>
+          <option value="probabilistic">
+            {labelOf(NEUTRAL_QUESTION_MODE_LABELS, "probabilistic")}
+          </option>
+        </select>
+      </Field>
+      {questionPolicy.neutralMode === "probabilistic" ? (
+        <Field label="neutral 必问概率（%）">
+          <input
+            className="field"
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            inputMode="numeric"
+            value={mustAskPercentDraft}
+            onChange={(event) => {
+              const raw = event.target.value;
+              setMustAskPercentDraft(raw);
+              onChange(
+                normalizeQuestionPolicyForSave({
+                  ...questionPolicy,
+                  neutralMustAskProbability: parseNeutralMustAskPercent(
+                    raw,
+                    Math.round(questionPolicy.neutralMustAskProbability * 100),
+                  ),
+                }),
+              );
+            }}
+            onBlur={() => {
+              void commitMustAskPercent();
+            }}
+          />
+          <div className="text-sm text-[var(--color-muted)]">
+            必问 {Math.round(mustAskPercent * 100)}% · 不许问{" "}
+            {Math.round(noAskPercent * 100)}%
+          </div>
+        </Field>
+      ) : null}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={questionPolicy.suppressIfLastAssistantAsked}
+          onChange={(event) =>
+            onChange({
+              ...questionPolicy,
+              suppressIfLastAssistantAsked: event.target.checked,
+            })
+          }
+        />
+        上一轮 assistant 已含问句时，neutral 强制 0 问（避免连续追问）
+      </label>
+    </div>
+  );
+}
+
+export interface BehaviorConfigEditorHandle {
+  isDirty: () => boolean;
+  save: () => Promise<void>;
+  reload: () => Promise<void>;
+  getQuestionPolicySummary: () => string | null;
+}
+
 /**
  * §16.2：Behavior Config v2 的 Lab 编辑入口。
- * v1 Settings 仍管运行时槽位与 Context；本组件管行为规则与三类内容资产。
+ * 保存由 Settings 页统一触发（ref.save）。
  */
-export function BehaviorConfigEditor({
-  profileId,
-  onSaved,
-}: {
-  profileId: string;
-  onSaved?: () => void;
-}) {
+export const BehaviorConfigEditor = forwardRef<
+  BehaviorConfigEditorHandle,
+  {
+    profileId: string;
+    onDirtyChange?: (dirty: boolean) => void;
+  }
+>(function BehaviorConfigEditor({ profileId, onDirtyChange }, ref) {
   const [config, setConfig] = useState<BehaviorConfigV2 | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [blocked, setBlocked] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<
+    BehaviorConfigResponse["warnings"]
+  >([]);
+  const [blocked, setBlocked] = useState<
+    BehaviorConfigResponse["blockedFromEnabling"]
+  >([]);
   const [persisted, setPersisted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const questionPolicyCommitRef = useRef<(() => QuestionPolicySettings) | null>(
+    null,
+  );
+  const configRef = useRef<BehaviorConfigV2 | null>(null);
+  configRef.current = config;
+  const savedSnapshotRef = useRef(savedSnapshot);
+  savedSnapshotRef.current = savedSnapshot;
+
+  const buildSavePayload = useCallback((): BehaviorConfigV2 | null => {
+    const current = configRef.current;
+    if (!current) return null;
+    const committedQuestionPolicy =
+      questionPolicyCommitRef.current?.() ?? current.questionPolicy;
+    return {
+      ...current,
+      questionPolicy: normalizeQuestionPolicyForSave(committedQuestionPolicy),
+    };
+  }, []);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -72,48 +236,72 @@ export function BehaviorConfigEditor({
     void load();
   }, [load]);
 
+  const save = useCallback(async (): Promise<void> => {
+    const payload = buildSavePayload();
+    if (!payload) return;
+    setError(null);
+    setConfig(payload);
+    const data = await api.put<BehaviorConfigResponse>("/api/behavior-config", {
+      profileId,
+      config: payload,
+    });
+    setConfig(data.config);
+    setSavedSnapshot(JSON.stringify(data.config));
+    setWarnings(data.warnings);
+    setBlocked(data.blockedFromEnabling);
+    setPersisted(data.persisted);
+  }, [buildSavePayload, profileId]);
+
+  const isDirty = useCallback((): boolean => {
+    const current = configRef.current;
+    if (!current) return false;
+    return JSON.stringify(current) !== savedSnapshotRef.current;
+  }, []);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty());
+  }, [config, savedSnapshot, onDirtyChange, isDirty]);
+
+  const getQuestionPolicySummary = useCallback((): string | null => {
+    const policy = configRef.current?.questionPolicy;
+    if (!policy) return null;
+    const normalized = normalizeQuestionPolicyForSave(policy);
+    const modeLabel = labelOf(NEUTRAL_QUESTION_MODE_LABELS, normalized.neutralMode);
+    if (normalized.neutralMode === "probabilistic") {
+      const percent = formatNeutralMustAskPercent(
+        normalized.neutralMustAskProbability,
+      );
+      return `提问 ${modeLabel} · 必问 ${percent}% · 上轮抑制 ${normalized.suppressIfLastAssistantAsked ? "开" : "关"}`;
+    }
+    return `提问 ${modeLabel} · 上轮抑制 ${normalized.suppressIfLastAssistantAsked ? "开" : "关"}`;
+  }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      isDirty,
+      save,
+      reload: load,
+      getQuestionPolicySummary,
+    }),
+    [isDirty, save, load, getQuestionPolicySummary],
+  );
+
   const patch = (updater: (current: BehaviorConfigV2) => BehaviorConfigV2): void => {
     setConfig((current) => (current ? updater(current) : current));
-  };
-
-  const save = async (): Promise<void> => {
-    if (!config) return;
-    setSaving(true);
-    setStatus(null);
-    try {
-      const data = await api.put<BehaviorConfigResponse>("/api/behavior-config", {
-        profileId,
-        config,
-      });
-      setConfig(data.config);
-      setSavedSnapshot(JSON.stringify(data.config));
-      setWarnings(data.warnings);
-      setBlocked(data.blockedFromEnabling);
-      setPersisted(true);
-      setStatus("行为配置 v2 已保存");
-      setError(null);
-      onSaved?.();
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setSaving(false);
-    }
   };
 
   if (error && !config) return <Notice tone="error">{error}</Notice>;
   if (!config) return <p className="text-sm">加载行为配置…</p>;
 
-  const dirty = JSON.stringify(config) !== savedSnapshot;
-
   return (
     <div className="space-y-4">
       <Notice>
         行为配置 v2 是 Compare 与预览的运行时引擎：Router、Energy 预算、策略、Turn Plan 与输出约束均由此读取。
-        模型槽位、供应商、Memory 与 Context 预算仍在下方 v1 Settings 管理。
+        与下方模型槽位、Memory、Context 等一并使用页面底部「保存」写入磁盘。
       </Notice>
 
       {error ? <Notice tone="error">{error}</Notice> : null}
-      {status ? <Notice>{status}</Notice> : null}
       <ValidationNotice blocking={blocked} warnings={warnings} />
 
       <dl className="card grid grid-cols-2 gap-x-4 gap-y-1 p-3 text-xs">
@@ -289,6 +477,16 @@ export function BehaviorConfigEditor({
             />
           </Field>
         </div>
+      </Collapsible>
+
+      <Collapsible title="Question Policy 提问策略" defaultOpen>
+        <QuestionPolicyEditor
+          questionPolicy={config.questionPolicy}
+          commitRef={questionPolicyCommitRef}
+          onChange={(questionPolicy) =>
+            patch((current) => ({ ...current, questionPolicy }))
+          }
+        />
       </Collapsible>
 
       <Collapsible title="Request Flags 请求标志（只读）">
@@ -589,20 +787,6 @@ export function BehaviorConfigEditor({
       <Collapsible title="Response Contract（只读）">
         <ReadonlyJson value={config.responseContract} />
       </Collapsible>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={saving || !dirty}
-          onClick={() => void save()}
-        >
-          {saving ? "保存中…" : "保存行为配置 v2"}
-        </button>
-        {dirty ? (
-          <span className="text-xs text-[var(--color-warning)]">有未保存的改动</span>
-        ) : null}
-      </div>
     </div>
   );
-}
+});

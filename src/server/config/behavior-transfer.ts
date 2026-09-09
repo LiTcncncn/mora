@@ -82,6 +82,7 @@ export function buildConfigExport(
     brandCanon: config.brandCanon,
     router: config.router,
     requestFlags: config.requestFlags,
+    questionPolicy: config.questionPolicy,
     energy: config.energy,
     majorEvent: config.majorEvent,
     safety: config.safety,

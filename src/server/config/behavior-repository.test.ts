@@ -280,6 +280,29 @@ describe("备份保留策略", () => {
     expect(backups.at(-1)!.fileName).toContain("2026-08-31T12-05");
   });
 
+  it("questionPolicy 保存后能从磁盘读回", async () => {
+    const base = await saveBaseline();
+    const next = {
+      ...base,
+      questionPolicy: {
+        neutralMode: "probabilistic" as const,
+        neutralMustAskProbability: 0.7,
+        suppressIfLastAssistantAsked: false,
+      },
+    };
+
+    const { config: saved } = await behaviorConfigRepository.save(
+      PROFILE_ID,
+      PROFILE_NAME,
+      next,
+    );
+    expect(saved.questionPolicy.neutralMustAskProbability).toBe(0.7);
+    expect(saved.questionPolicy.suppressIfLastAssistantAsked).toBe(false);
+
+    const loaded = await behaviorConfigRepository.get(PROFILE_ID, PROFILE_NAME);
+    expect(loaded.questionPolicy).toEqual(saved.questionPolicy);
+  });
+
   it("拒绝不合法的备份文件名，不拼接任意路径", async () => {
     await expect(readBackup("../../etc/passwd")).rejects.toMatchObject({
       code: "VALIDATION_ERROR",

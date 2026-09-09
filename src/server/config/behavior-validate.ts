@@ -13,10 +13,7 @@ import {
   type BehaviorConfigV2,
 } from "@/domain/behavior-config";
 import { RESPONSE_MODES, type ResponseMode } from "@/domain/behavior-taxonomy";
-import {
-  INVITE_OVERRIDE_FORBIDDEN_MODES,
-  worldviewCapableModes,
-} from "@/domain/strategy-policy";
+import { worldviewCapableModes } from "@/domain/strategy-policy";
 import type { EnergyLevel } from "@/domain/common";
 
 /**
@@ -154,18 +151,6 @@ function validateStrategies(config: BehaviorConfigV2): ValidationIssue[] {
     }
   }
 
-  // D54：这三组的 mustAvoid 都写着不要追问，允许 invite 推翻会让配置与
-  // 自己的行为规则冲突。
-  for (const mode of INVITE_OVERRIDE_FORBIDDEN_MODES) {
-    if (config.strategies[mode]?.allowInviteOverride === true) {
-      issues.push({
-        code: "strategy.invite_override_forbidden",
-        category: "hard",
-        message: `${mode} 的 allowInviteOverride 必须为 false（D54）：该策略的 mustAvoid 已禁止追问`,
-      });
-    }
-  }
-
   // §8.1 编译期校验：lengthMultiplier 作用后不得超过对应档的 hardMaxChars。
   for (const mode of RESPONSE_MODES) {
     const policy = config.strategies[mode];
@@ -299,6 +284,7 @@ function validateCanonLint(config: BehaviorConfigV2): ValidationIssue[] {
   }
 
   for (const seed of config.worldviewSeeds) {
+    // avoidClaims 是「不要说什么」的负向指令，常会直接写出禁词本身，不应判违规。
     const matched = hit(
       [
         seed.title,
@@ -306,7 +292,6 @@ function validateCanonLint(config: BehaviorConfigV2): ValidationIssue[] {
         seed.memory,
         seed.attitude,
         ...seed.tags,
-        ...seed.avoidClaims,
       ].join("\n"),
     );
     if (matched.length > 0) {

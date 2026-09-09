@@ -384,6 +384,7 @@ function ImportPreviewCard({
         <div>
           <p className="font-medium">迁移报告</p>
           <p className="text-[var(--color-muted)]">
+            旧版 few-shot 样本：
             {MIGRATION_SOURCE_LABELS[preview.migration.fewShotSource]}
             （{preview.migration.fewShotSampleCount} 条），生成{" "}
             {preview.migration.exampleCardCandidates} 张待审核示例卡。

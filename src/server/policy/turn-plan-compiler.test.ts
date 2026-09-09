@@ -22,7 +22,12 @@ function planFor(message: string) {
     },
     config.requestFlags,
   );
-  const basePlan = compileTurnPlan({ routing, config, safety });
+  const basePlan = compileTurnPlan({
+    routing,
+    config,
+    safety,
+    lastAssistantAskedQuestion: false,
+  });
   return finalizeBehaviorTurn({
     basePlan,
     routing,
@@ -60,5 +65,20 @@ describe("compileTurnPlan", () => {
     const plan = planFor("我先睡了，改天聊");
     expect(plan.responseMode).toBe("CLOSE");
     expect(plan.responseBudget.targetMaxChars).toBeLessThanOrEqual(60);
+  });
+
+  it("用户把话题权交给 ZHAKA 时要求贡献内容", () => {
+    const plan = planFor("你说点什么吧，聊点怪的");
+    expect(plan.responseMode).toBe("COMPANION");
+    expect(plan.responseBudget.maxQuestions).toBe(0);
+    expect(plan.mustDo.some((line) => line.includes("主动贡献"))).toBe(true);
+    expect(plan.mustAvoid.some((line) => line.includes("丢回"))).toBe(true);
+  });
+
+  it("很闲没话题时走短闲聊而不是安抚篇幅", () => {
+    const plan = planFor("我也不知道聊什么，我现在很闲");
+    expect(plan.responseMode).toBe("COMPANION");
+    expect(plan.responseBudget.targetMaxChars).toBeLessThanOrEqual(90);
+    expect(plan.mustAvoid.some((line) => line.includes("许可式"))).toBe(true);
   });
 });

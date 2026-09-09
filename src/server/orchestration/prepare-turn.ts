@@ -204,6 +204,7 @@ export async function prepareSharedTurnContext(input: {
     routing,
     config: behaviorConfig,
     safety,
+    lastAssistantAskedQuestion: routerInput.lastAssistantAskedQuestion,
     energyOverride: input.energyOverride,
     allowEnergyOverride: input.settings.energy.allowPerMessageOverride,
   });

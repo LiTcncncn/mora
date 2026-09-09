@@ -1,16 +1,10 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import type {
-  ConfigImportSummary,
-  MoraConfigBundle,
-} from "@/domain/config-bundle";
-import type { FewShotSample } from "@/domain/fewshot";
+import type { MoraConfigBundle } from "@/domain/config-bundle";
 import type { Persona } from "@/domain/persona";
 import type { PromptPreset } from "@/domain/prompt";
 import type { SettingsData } from "@/domain/settings";
 import {
-  fewShotRepository,
-  fewShotStore,
   personaRepository,
   personasStore,
   profileRepository,
@@ -22,14 +16,12 @@ import {
 export async function exportConfigBundle(
   profileId: string,
 ): Promise<MoraConfigBundle> {
-  const [profile, settings, personas, promptPresets, fewShotSamples] =
-    await Promise.all([
-      profileRepository.requireProfile(profileId),
-      settingsRepository.get(profileId),
-      personaRepository.list(profileId),
-      promptPresetRepository.list(profileId),
-      fewShotRepository.list(profileId),
-    ]);
+  const [profile, settings, personas, promptPresets] = await Promise.all([
+    profileRepository.requireProfile(profileId),
+    settingsRepository.get(profileId),
+    personaRepository.list(profileId),
+    promptPresetRepository.list(profileId),
+  ]);
 
   return {
     schemaVersion: 1,
@@ -39,32 +31,6 @@ export async function exportConfigBundle(
     settings,
     personas,
     promptPresets,
-    fewShotSamples,
-  };
-}
-
-export function summarizeBundle(
-  bundle: MoraConfigBundle,
-  current: {
-    personaCount: number;
-    promptPresetCount: number;
-    fewShotSampleCount: number;
-  },
-): ConfigImportSummary {
-  return {
-    personaCount: bundle.personas.length,
-    promptPresetCount: bundle.promptPresets.length,
-    fewShotSampleCount: bundle.fewShotSamples?.length ?? null,
-    modelSlots: bundle.settings.compare.modelSlots.map((slot) => ({
-      label: slot.label,
-      provider: slot.provider,
-      modelId: slot.modelId,
-    })),
-    sourceProfileName: bundle.sourceProfileName,
-    exportedAt: bundle.exportedAt,
-    replacesPersonaCount: current.personaCount,
-    replacesPromptPresetCount: current.promptPresetCount,
-    replacesFewShotSampleCount: current.fewShotSampleCount,
   };
 }
 
@@ -93,15 +59,6 @@ export async function importConfigBundle(
     presetIdMap.set(preset.id, id);
     return { ...preset, id, profileId, createdAt: timestamp, updatedAt: timestamp };
   });
-
-  const fewShotSamples: FewShotSample[] | null =
-    bundle.fewShotSamples?.map((sample) => ({
-      ...sample,
-      id: `fs-${randomUUID()}`,
-      profileId,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    })) ?? null;
 
   const activePersonaId =
     personaIdMap.get(bundle.settings.activePersonaId) ?? personas[0]?.id;
@@ -132,19 +89,6 @@ export async function importConfigBundle(
     },
     result: null,
   }));
-
-  // 配置文件不含样本字段时不动现有样本，避免导入旧配置把语料清空。
-  if (fewShotSamples) {
-    await fewShotStore.update((current) => ({
-      next: {
-        items: [
-          ...current.items.filter((item) => item.profileId !== profileId),
-          ...fewShotSamples,
-        ],
-      },
-      result: null,
-    }));
-  }
 
   return settingsRepository.save(profileId, {
     ...bundle.settings,

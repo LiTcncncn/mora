@@ -9,7 +9,6 @@ const NAV_ITEMS = [
   { href: "/", label: "总览" },
   { href: "/compare", label: "多模型对话" },
   { href: "/studio", label: "Prompt Studio 提示词工坊" },
-  { href: "/fewshot", label: "Few-shot 示例语料" },
   { href: "/memory", label: "Memory 记忆" },
   { href: "/runs", label: "运行记录" },
   { href: "/settings", label: "设置" },
@@ -34,7 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
       <header className="shrink-0 border-b bg-white md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
-          <span className="font-medium">MORA Lab</span>
+          <span className="font-medium">ZHAKA Lab</span>
           <button
             type="button"
             className="btn"
@@ -64,7 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <aside className="hidden w-60 shrink-0 border-r bg-white md:flex md:h-full md:flex-col md:overflow-y-auto">
         <div className="border-b px-4 py-4">
-          <div className="font-medium">MORA Lab</div>
+          <div className="font-medium">ZHAKA Lab</div>
           <div className="text-xs text-[var(--color-muted)]">本地实验台</div>
         </div>
         <nav className="p-2">

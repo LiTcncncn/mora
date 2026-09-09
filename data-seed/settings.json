@@ -6,7 +6,7 @@
       {
         "profileId": "profile-default",
         "settings": {
-          "activePersonaId": "persona-mora-default",
+          "activePersonaId": "persona-zhaka-default",
           "activePromptPresetId": "preset-default",
           "defaultProvider": "kimi",
           "providers": {

@@ -8,7 +8,7 @@
 | --- | --- |
 | `profiles.json` | 测试档案 |
 | `settings.json` | 模型槽位、Memory、Context 等 |
-| `personas.json` | MORA Persona（含 corePrompt） |
+| `personas.json` | ZHAKA Persona（含 corePrompt） |
 | `prompt-presets.json` | Prompt 分区模板 |
 | `behavior-config.json` | v2 行为配置（Router / Energy / 策略 / 世界观 / 示例卡） |
 | `conversations.json` | 空 |

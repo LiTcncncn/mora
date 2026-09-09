@@ -32,6 +32,29 @@ function resolveResponseMode(text: string): TurnRoutingResult["responseMode"] {
   if (/怎么办|怎么做|给我步骤|帮我.{0,6}一下|我该怎么/.test(text)) {
     return { value: "ONE_STEP_HELP", confidence: 0.75, evidence: ["求具体帮助"] };
   }
+  // 用户把话题权交给 ZHAKA：走 COMPANION，由 casual-chat 约束强制贡献内容
+  if (
+    /你说点|你讲[一点个]|你来[说讲聊]|你起头|你说吧|你来吧|聊点怪|讲[一点个]好玩|说[一点个]好玩|讲个故事|说个故事|你先说|给我讲/.test(
+      text,
+    )
+  ) {
+    return {
+      value: "COMPANION",
+      confidence: 0.85,
+      evidence: ["用户把话题权交给 ZHAKA"],
+    };
+  }
+  if (
+    /很闲|好闲|没事干|不知道聊什么|没话题|无聊|闲着|不知道说什么|不知道讲什么/.test(
+      text,
+    )
+  ) {
+    return {
+      value: "COMPANION",
+      confidence: 0.75,
+      evidence: ["闲聊无话题"],
+    };
+  }
   if (/\?|？|吗$|么$|什么|为什么|怎么|哪/.test(text)) {
     return { value: "DIRECT_ANSWER", confidence: 0.65, evidence: ["明确提问"] };
   }
@@ -59,7 +82,7 @@ function resolveEnergy(
 }
 
 function resolveWorldviewRelation(text: string): TurnRoutingResult["worldviewRelation"] {
-  if (/MORA|亚马逊|雨林|树懒|你.{0,2}哪出生|你.{0,2}朋友/.test(text)) {
+  if (/ZHAKA|MORA|亚马逊|雨林|树懒|你.{0,2}哪出生|你.{0,2}朋友/.test(text)) {
     return {
       level: "required",
       tags: [],

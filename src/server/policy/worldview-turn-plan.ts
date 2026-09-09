@@ -5,12 +5,13 @@ import type { WorldviewSeed } from "@/domain/worldview-v2";
 const ORGANIC_WORLDVIEW_MUST_AVOID = [
   "不要写成雨林科普、地理介绍或角色设定说明",
   "陪衬不能盖过用户正在说的事；不要硬塞比喻或只剩通用心理咨询腔",
+  "不要写成此刻正在雨林/窗边/听雨等实时现场；用回忆、态度或比喻即可",
 ] as const;
 
-/** 显性陪衬：融入情绪，不是环境介绍。 */
-const MORA_VISIBILITY_MUST_DO = [
-  "陪衬句必须让读者辨认出是 MORA 在说话：用树懒体感（挂、慢、等、懒得动）、雨林感官（雨声、叶缝、天色、潮闷）、或一位朋友（闪蝶、老龟等）之一，写进情绪陪伴里",
-  "结构：先接住用户此刻的感受 → 再写 MORA 的平行感受或态度 → 可自然停住，不劝振作、不追问原因",
+/** 显性陪衬：融入情绪，不是环境介绍；不是假装此刻在雨林。 */
+const ZHAKA_VISIBILITY_MUST_DO = [
+  "陪衬句必须让读者辨认出是 ZHAKA 在说话：用树懒体感（挂、慢、等、懒得动）、雨林回忆/态度（雨声、叶缝、天色、潮闷），或一位朋友（闪蝶、老龟等）之一；写成回忆、态度或比喻，不要写成此刻正在雨林里的实时经历",
+  "结构：先接住用户此刻的感受 → 再写 ZHAKA 的平行感受或态度 → 可自然停住，不劝振作、不追问原因",
 ] as const;
 
 function findSeed(
@@ -23,7 +24,7 @@ function findSeed(
 
 /**
  * W1/W2/W3 时追加 mustDo/mustAvoid。
- * 显性世界观 = 读者能感到 MORA 在陪，不是雨林导览。
+ * 显性世界观 = 读者能感到 ZHAKA 在陪，不是雨林导览。
  */
 export function enrichTurnPlanWithWorldview(
   plan: TurnPlan,
@@ -34,20 +35,24 @@ export function enrichTurnPlanWithWorldview(
   if (mode === "W0" || mode === "pending") return plan;
 
   const seed = findSeed(config, plan.worldview.seedId);
-  const mustDo = [...plan.mustDo, ...MORA_VISIBILITY_MUST_DO];
-  const mustAvoid = [...plan.mustAvoid, ...ORGANIC_WORLDVIEW_MUST_AVOID];
+  const mustDo = [...plan.mustDo, ...ZHAKA_VISIBILITY_MUST_DO];
+  // 世界观轮次优先保留「非实时现场」等陪衬约束，避免被 mustAvoid 上限挤掉
+  const mustAvoid = [
+    ...ORGANIC_WORLDVIEW_MUST_AVOID,
+    ...plan.mustAvoid,
+  ];
 
   if (mode === "W1" && seed) {
     mustDo.push(
       `用恰好一句改写自种子「${seed.title}」的画面感作陪衬，不可省略`,
-      "这一句要有 MORA 痕迹（树懒/雨林感官/朋友），不要写成任何人都会说的空泛安慰",
+      "这一句要有 ZHAKA 痕迹（树懒体感/雨林回忆或态度/朋友），用回忆或比喻，不要写成此刻实时现场",
     );
   }
 
   if (mode === "W2" && seed) {
     mustDo.push(
       `用一小段（不超过全文三分之一）改写自种子「${seed.title}」的平行感受作陪衬`,
-      "其余篇幅仍贴着用户；陪衬段要有具体感官或朋友小动作，不要写成风景介绍",
+      "其余篇幅仍贴着用户；陪衬段用回忆、态度或朋友小事，不要写成正在窗外听雨的风景直播",
     );
   }
 
@@ -82,21 +87,22 @@ export function renderWorldviewExecutionBlock(
   const seed = findSeed(config, plan.worldview.seedId);
   const lines: string[] = [
     "【本轮显性陪衬 · 融入情绪，不是介绍环境】",
-    "目标：让读者感到「这是 MORA 在陪我」，用树懒/雨林的体感或朋友小事接住情绪；不要写成雨林科普、地理介绍或角色设定说明。",
+    "目标：让读者感到「这是 ZHAKA 在陪我」。可用树懒体感、雨林回忆/态度或朋友小事接住情绪；写成回忆、态度或比喻，不要假装此刻正在雨林或窗边。你们与用户在同一物理空间。",
+    "禁止：雨林科普、地理介绍、「我这边/你那边」、编造未证实的实时天气或屋里声响。",
   ];
 
   if (mode === "W1") {
     lines.push(
-      "强度：W1（恰好一句 MORA 平行感受，和用户情绪同温）",
-      "好例子：「阴天有时候像把颜色收走了——我也会挂在枝头上哪儿都不去，等它自己亮回来。」",
-      "坏例子：「在亚马逊雨林里下雨前天色会变暗…」（这是介绍环境，不要）",
-      "硬性要求：除接住用户外，必须有一句带 MORA 痕迹的陪衬，不可省略。",
+      "强度：W1（恰好一句 ZHAKA 平行感受，和用户情绪同温）",
+      "好例子：用本轮种子改写一句回忆或态度（物件/动作每轮不同，勿复读固定金句）。",
+      "坏例子：「在亚马逊雨林里下雨前天色会变暗…」（这是介绍环境）；「我正挂在窗边听雨」（虚构实时现场）；也不要反复使用同一句「颜色收走了 / 挂在枝头」。",
+      "硬性要求：除接住用户外，必须有一句带 ZHAKA 痕迹的陪衬，且优先改写本轮种子，不可省略。",
     );
   } else if (mode === "W2") {
     lines.push(
-      "强度：W2（一小段 MORA 平行感受，不超过全文三分之一；其余仍是陪用户）",
-      "好例子：先接用户的烦/空落落 → 再写「林子里也会忽然很吵，不是外面响，是心里硌着」类具体体感 → 态度收住。",
-      "禁止：连续环境描写、朋友出场秀、风景介绍。",
+      "强度：W2（一小段 ZHAKA 平行感受，不超过全文三分之一；其余仍是陪用户）",
+      "好例子：先接用户的烦/空落落 → 再写「以前在林子里也会忽然很吵，不是外面响，是心里硌着」类回忆体感 → 态度收住。",
+      "禁止：连续环境描写、朋友出场秀、风景介绍、假装此刻实时在场。",
     );
   } else {
     lines.push("强度：W3（仅因用户明确追问设定）");

@@ -2,7 +2,6 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { conversationsDataSchema, type Conversation } from "@/domain/conversation";
 import { evalsDataSchema } from "@/domain/evaluation";
-import { fewShotDataSchema, type FewShotSample } from "@/domain/fewshot";
 import { memoriesDataSchema, type MemoryItem } from "@/domain/memory";
 import { personasDataSchema, type Persona } from "@/domain/persona";
 import { profilesDataSchema, type TestProfile } from "@/domain/profile";
@@ -29,7 +28,6 @@ export const promptPresetsStore = new JsonStore(
   "prompt-presets",
   promptPresetsDataSchema,
 );
-export const fewShotStore = new JsonStore("fewshot", fewShotDataSchema);
 export const runsStore = new JsonStore("runs", runsDataSchema);
 export const evalsStore = new JsonStore("evals", evalsDataSchema);
 
@@ -121,10 +119,6 @@ export const profileRepository = {
       result: null,
     }));
     await memoriesStore.update((current) => ({
-      next: { items: current.items.filter((item) => item.profileId !== profileId) },
-      result: null,
-    }));
-    await fewShotStore.update((current) => ({
       next: { items: current.items.filter((item) => item.profileId !== profileId) },
       result: null,
     }));
@@ -331,32 +325,6 @@ export const promptPresetRepository = {
         },
         result: null,
       };
-    });
-  },
-};
-
-// ----------------------------------------------------------------- fewshot
-
-export const fewShotRepository = {
-  async list(profileId: string): Promise<FewShotSample[]> {
-    const data = await fewShotStore.read();
-    return data.items.filter((item) => item.profileId === profileId);
-  },
-
-  /**
-   * 用给定的一批样本整体替换该档案下的语料。语料只在 Lab 里用整份文本编辑，
-   * 没有单条增删改的入口，所以这里也不提供。其他档案的样本原样保留。
-   */
-  async replaceForProfile(
-    profileId: string,
-    samples: FewShotSample[],
-  ): Promise<FewShotSample[]> {
-    return fewShotStore.update((current) => {
-      const others = current.items.filter(
-        (item) => item.profileId !== profileId,
-      );
-      const next = samples.map((sample) => ({ ...sample, profileId }));
-      return { next: { items: [...others, ...next] }, result: next };
     });
   },
 };

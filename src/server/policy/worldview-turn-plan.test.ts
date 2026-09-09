@@ -31,7 +31,12 @@ describe("worldview turn plan", () => {
       },
       cfg.requestFlags,
     );
-    const basePlan = compileTurnPlan({ routing, config: cfg, safety });
+    const basePlan = compileTurnPlan({
+      routing,
+      config: cfg,
+      safety,
+      lastAssistantAskedQuestion: false,
+    });
     const finalized = finalizeBehaviorTurn({
       basePlan,
       routing,
@@ -66,9 +71,10 @@ describe("worldview turn plan", () => {
 
     const text = renderTurnPlanText(plan, cfg);
     expect(text).toContain("【本轮显性陪衬 · 融入情绪，不是介绍环境】");
+    expect(text).toContain("同一物理空间");
     expect(text).toContain("雨前暗下来");
     expect(text).not.toContain("理想回复风格");
-    expect(text).toContain("MORA");
+    expect(text).toContain("ZHAKA");
   });
 
   it("W1/W2 注入后 turnPlan 仍通过 schema（mustDo/mustAvoid ≤10）", () => {
@@ -91,7 +97,12 @@ describe("worldview turn plan", () => {
         cfg.requestFlags,
       );
       routing.responseMode.value = responseMode;
-      const basePlan = compileTurnPlan({ routing, config: cfg, safety });
+      const basePlan = compileTurnPlan({
+      routing,
+      config: cfg,
+      safety,
+      lastAssistantAskedQuestion: false,
+    });
       for (const mode of ["W1", "W2"] as const) {
         const enriched = enrichTurnPlanWithWorldview(
           {
