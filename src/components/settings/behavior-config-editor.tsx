@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type ReactNode,
   type RefObject,
 } from "react";
 import type { BehaviorConfigV2 } from "@/domain/behavior-config";
@@ -26,7 +27,12 @@ import {
   SectionTitle,
 } from "@/components/ui/primitives";
 import { api, errorMessage } from "@/lib/api-client";
-import { labelOf, NEUTRAL_QUESTION_MODE_LABELS, PROVIDER_LABELS } from "@/lib/labels";
+import {
+  labelOf,
+  NEUTRAL_QUESTION_MODE_LABELS,
+  PROVIDER_LABELS,
+  RESPONSE_MODE_LABELS,
+} from "@/lib/labels";
 import {
   CanonFactsEditor,
   EnergyBudgetGrid,
@@ -36,6 +42,10 @@ import {
   SeedsEditor,
   ValidationNotice,
 } from "./behavior-config-assets";
+
+function PlannerHint({ children }: { children: ReactNode }) {
+  return <p className="text-xs text-[var(--color-muted)]">{children}</p>;
+}
 
 interface BehaviorConfigResponse {
   config: BehaviorConfigV2;
@@ -96,7 +106,10 @@ function QuestionPolicyEditor({
 
   return (
     <div className="space-y-3">
-      <Field label="neutral 模式">
+      <PlannerHint>
+        控制「中性场景」要不要追问。上一轮已经问过时，建议打开下方开关避免连问。
+      </PlannerHint>
+      <Field label="中性场景怎么处理提问">
         <select
           className="field"
           value={questionPolicy.neutralMode}
@@ -120,7 +133,7 @@ function QuestionPolicyEditor({
         </select>
       </Field>
       {questionPolicy.neutralMode === "probabilistic" ? (
-        <Field label="neutral 必问概率（%）">
+        <Field label="必问概率（%）">
           <input
             className="field"
             type="number"
@@ -147,8 +160,8 @@ function QuestionPolicyEditor({
             }}
           />
           <div className="text-sm text-[var(--color-muted)]">
-            必问 {Math.round(mustAskPercent * 100)}% · 不许问{" "}
-            {Math.round(noAskPercent * 100)}%
+            约 {Math.round(mustAskPercent * 100)}% 会问一句 ·{" "}
+            {Math.round(noAskPercent * 100)}% 不问
           </div>
         </Field>
       ) : null}
@@ -163,7 +176,7 @@ function QuestionPolicyEditor({
             })
           }
         />
-        上一轮 assistant 已含问句时，neutral 强制 0 问（避免连续追问）
+        上一轮已经问过，本轮中性场景就不要再问
       </label>
     </div>
   );
@@ -177,7 +190,7 @@ export interface BehaviorConfigEditorHandle {
 }
 
 /**
- * §16.2：Behavior Config v2 的 Lab 编辑入口。
+ * Behavior Config 的 Lab 编辑入口。
  * 保存由 Settings 页统一触发（ref.save）。
  */
 export const BehaviorConfigEditor = forwardRef<
@@ -292,40 +305,36 @@ export const BehaviorConfigEditor = forwardRef<
   };
 
   if (error && !config) return <Notice tone="error">{error}</Notice>;
-  if (!config) return <p className="text-sm">加载行为配置…</p>;
+  if (!config) return <p className="text-sm">加载中…</p>;
+
+  const approvedExamples = config.exampleCards.filter(
+    (card) => card.enabled && card.reviewStatus === "approved",
+  ).length;
+  const enabledSeeds = config.worldviewSeeds.filter((seed) => seed.enabled).length;
 
   return (
     <div className="space-y-4">
       <Notice>
-        行为配置 v2 是 Compare 与预览的运行时引擎：Router、Energy 预算、策略、Turn Plan 与输出约束均由此读取。
-        与下方模型槽位、Memory、Context 等一并使用页面底部「保存」写入磁盘。
+        这里决定 ZHAKA「像谁、说多长、要不要聊雨林、要不要追问」。改完用页面底部「保存」。
+        日常优先改：人设口径、回复篇幅、世界观素材、示例口吻；底下「进阶」一般不用动。
       </Notice>
 
       {error ? <Notice tone="error">{error}</Notice> : null}
       <ValidationNotice blocking={blocked} warnings={warnings} />
 
-      <dl className="card grid grid-cols-2 gap-x-4 gap-y-1 p-3 text-xs">
-        <div>
-          <dt className="text-[var(--color-muted)]">configHash</dt>
-          <dd className="mono break-all">{config.configHash}</dd>
-        </div>
-        <div>
-          <dt className="text-[var(--color-muted)]">已持久化</dt>
-          <dd>{persisted ? "是" : "否（当前为默认值）"}</dd>
-        </div>
-        <div>
-          <dt className="text-[var(--color-muted)]">taxonomyVersion</dt>
-          <dd>{config.taxonomyVersion}</dd>
-        </div>
-        <div>
-          <dt className="text-[var(--color-muted)]">worldviewVersion</dt>
-          <dd>{config.worldviewVersion}</dd>
-        </div>
-      </dl>
+      <p className="text-xs text-[var(--color-muted)]">
+        当前素材：事实 {config.canonFacts.length} · 启用种子 {enabledSeeds}/
+        {config.worldviewSeeds.length} · 可用示例 {approvedExamples}/
+        {config.exampleCards.length}
+        {persisted ? "" : " · 尚未保存过（仍是默认起步包）"}
+      </p>
 
-      <Collapsible title="Brand Canon 品牌与世界观口径" defaultOpen>
+      <Collapsible title="1. 人设口径（出生地、来历、可用物种）">
         <div className="space-y-3">
-          <Field label="出生地表述">
+          <PlannerHint>
+            写给模型的「官方说法」。用户追问出身/朋友时优先对齐这里，也用于禁旧设定。
+          </PlannerHint>
+          <Field label="出生地怎么说">
             <input
               className="field"
               value={config.brandCanon.originStatement}
@@ -340,7 +349,7 @@ export const BehaviorConfigEditor = forwardRef<
               }
             />
           </Field>
-          <Field label="来人类家表述">
+          <Field label="为什么住在用户这里">
             <input
               className="field"
               value={config.brandCanon.arrivalStatement}
@@ -355,7 +364,7 @@ export const BehaviorConfigEditor = forwardRef<
               }
             />
           </Field>
-          <Field label="已批准物种（每行一个）">
+          <Field label="允许提到的物种（每行一个）">
             <textarea
               className="field min-h-24"
               value={config.brandCanon.approvedSpecies.join("\n")}
@@ -376,126 +385,108 @@ export const BehaviorConfigEditor = forwardRef<
         </div>
       </Collapsible>
 
-      <Collapsible title="Turn Router 轻量路由">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={config.router.enabled}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: { ...current.router, enabled: event.target.checked },
-                }))
-              }
-            />
-            启用 Router（Shadow 模式仍记录结果）
-          </label>
-          <Field label="模式">
-            <select
-              className="field"
-              value={config.router.mode}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: {
-                    ...current.router,
-                    mode: event.target.value as typeof config.router.mode,
-                  },
-                }))
-              }
-            >
-              <option value="llm">llm</option>
-              <option value="rules">rules</option>
-              <option value="fixed">fixed</option>
-            </select>
-          </Field>
-          <Field label="Provider">
-            <select
-              className="field"
-              value={config.router.provider}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: {
-                    ...current.router,
-                    provider: event.target.value as ProviderId,
-                  },
-                }))
-              }
-            >
-              {PROVIDERS.map((provider) => (
-                <option key={provider} value={provider}>
-                  {labelOf(PROVIDER_LABELS, provider)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="modelId">
-            <input
-              className="field"
-              value={config.router.modelId}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: { ...current.router, modelId: event.target.value },
-                }))
-              }
-            />
-          </Field>
-          <Field label="minOverallConfidence">
-            <input
-              type="number"
-              step="0.05"
-              className="field"
-              value={config.router.minOverallConfidence}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: {
-                    ...current.router,
-                    minOverallConfidence: Number(event.target.value),
-                  },
-                }))
-              }
-            />
-          </Field>
-          <Field label="timeoutMs">
-            <input
-              type="number"
-              className="field"
-              value={config.router.timeoutMs}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  router: {
-                    ...current.router,
-                    timeoutMs: Number(event.target.value),
-                  },
-                }))
-              }
-            />
-          </Field>
-        </div>
-      </Collapsible>
-
-      <Collapsible title="Question Policy 提问策略" defaultOpen>
-        <QuestionPolicyEditor
-          questionPolicy={config.questionPolicy}
-          commitRef={questionPolicyCommitRef}
-          onChange={(questionPolicy) =>
-            patch((current) => ({ ...current, questionPolicy }))
+      <Collapsible title={`2. 世界观事实库（${config.canonFacts.length}）`}>
+        <PlannerHint>
+          稳定事实：出身、朋友关系等。用户直接问设定时用来回答，避免临场编造。
+        </PlannerHint>
+        <CanonFactsEditor
+          facts={config.canonFacts}
+          onChange={(canonFacts) =>
+            patch((current) => ({ ...current, canonFacts }))
           }
         />
       </Collapsible>
 
-      <Collapsible title="Request Flags 请求标志（只读）">
-        <ReadonlyJson value={config.requestFlags} />
+      <Collapsible
+        title={`3. 情景种子（${enabledSeeds}/${config.worldviewSeeds.length} 启用）`}
+      >
+        <PlannerHint>
+          适合「自然带出」雨林联想的小片段。系统会按频率挑选，不是每句都用。
+          下方是整表 JSON，直接改即可；已有约四十条时优先改文案质量。
+        </PlannerHint>
+        <SeedsEditor
+          seeds={config.worldviewSeeds}
+          onChange={(worldviewSeeds) =>
+            patch((current) => ({ ...current, worldviewSeeds }))
+          }
+        />
       </Collapsible>
 
-      <Collapsible title="Energy v2 四档预算" defaultOpen>
+      <Collapsible
+        title={`4. 口吻示例卡（${approvedExamples}/${config.exampleCards.length} 可用）`}
+      >
+        <PlannerHint>
+          给模型看「这种场景可以怎么说」。只有审核通过且启用的卡会进检索；回复模式要对得上才会用到。
+          日常聊天多在「陪伴」，先把陪伴类示例写好最有用。带出世界观种子的那一轮不会同时塞示例卡。
+        </PlannerHint>
+        <ExampleCardsEditor
+          cards={config.exampleCards}
+          onChange={(exampleCards) =>
+            patch((current) => ({ ...current, exampleCards }))
+          }
+        />
+        <div className="mt-4 space-y-3 border-t pt-3">
+          <p className="text-sm font-medium">示例卡检索开关</p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={config.exampleRetrieval.enabled}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  exampleRetrieval: {
+                    ...current.exampleRetrieval,
+                    enabled: event.target.checked,
+                  },
+                }))
+              }
+            />
+            开启示例检索（关闭后完全不参考示例卡）
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="最低匹配分（越高越挑）">
+              <input
+                type="number"
+                step="0.05"
+                className="field"
+                value={config.exampleRetrieval.minScore}
+                onChange={(event) =>
+                  patch((current) => ({
+                    ...current,
+                    exampleRetrieval: {
+                      ...current.exampleRetrieval,
+                      minScore: Number(event.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="示例最多占用字符">
+              <input
+                type="number"
+                className="field"
+                value={config.exampleRetrieval.maxChars}
+                onChange={(event) =>
+                  patch((current) => ({
+                    ...current,
+                    exampleRetrieval: {
+                      ...current.exampleRetrieval,
+                      maxChars: Number(event.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+        </div>
+      </Collapsible>
+
+      <Collapsible title="5. 回复篇幅（四档能量）">
         <div className="space-y-3">
-          <Field label="hardMaxToleranceRatio">
+          <PlannerHint>
+            用户越累，回复应越短。这里管目标字数与硬上限；聊天页还可手动覆盖本轮档位。
+          </PlannerHint>
+          <Field label="允许略超硬上限的比例（如 0.2 = 超 20% 仍发出但记警告）">
             <input
               type="number"
               step="0.05"
@@ -530,90 +521,68 @@ export const BehaviorConfigEditor = forwardRef<
         </div>
       </Collapsible>
 
-      <Collapsible title="Major Event 重大事件">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={config.majorEvent.enabled}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  majorEvent: {
-                    ...current.majorEvent,
-                    enabled: event.target.checked,
-                  },
-                }))
-              }
-            />
-            启用重大事件检测
-          </label>
-          {(
-            [
-              ["fingerprintSimilarityThreshold", "指纹相似度阈值", 0.05],
-              ["fingerprintRetentionMonths", "指纹保留月数", 1],
-              ["firstMentionHardMaxChars", "首轮硬上限字符", 1],
-              ["firstMentionMaxSentences", "首轮最大句数", 1],
-            ] as const
-          ).map(([key, label, step]) => (
-            <Field key={key} label={label}>
-              <input
-                type="number"
-                step={step}
-                className="field"
-                value={config.majorEvent[key]}
-                onChange={(event) =>
-                  patch((current) => ({
-                    ...current,
-                    majorEvent: {
-                      ...current.majorEvent,
-                      [key]: Number(event.target.value),
-                    },
-                  }))
-                }
-              />
-            </Field>
-          ))}
-        </div>
+      <Collapsible title="6. 要不要追问">
+        <QuestionPolicyEditor
+          questionPolicy={config.questionPolicy}
+          commitRef={questionPolicyCommitRef}
+          onChange={(questionPolicy) =>
+            patch((current) => ({ ...current, questionPolicy }))
+          }
+        />
       </Collapsible>
 
-      <Collapsible title="Response Strategies 策略数值">
+      <Collapsible title="7. 各回复模式的策略数值">
         <div className="space-y-4">
+          <PlannerHint>
+            每种聊天意图可单独调：动作多少、篇幅倍率、是否允许带世界观。目标说明是只读文案。
+          </PlannerHint>
           {RESPONSE_MODES.map((mode) => {
             const policy = config.strategies[mode];
             const rules = STRATEGY_RULE_TEXTS[mode];
             return (
               <div key={mode} className="card space-y-2 p-3">
-                <SectionTitle>{mode}</SectionTitle>
+                <SectionTitle>{labelOf(RESPONSE_MODE_LABELS, mode)}</SectionTitle>
                 <p className="text-xs text-[var(--color-muted)]">{rules.goal}</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {(
-                    [
-                      ["defaultMaxActions", "defaultMaxActions"],
-                      ["lengthMultiplier", "lengthMultiplier"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <Field key={key} label={label}>
-                      <input
-                        type="number"
-                        step={key === "lengthMultiplier" ? 0.05 : 1}
-                        className="field"
-                        value={policy[key]}
-                        onChange={(event) =>
-                          patch((current) => ({
-                            ...current,
-                            strategies: {
-                              ...current.strategies,
-                              [mode]: {
-                                ...current.strategies[mode],
-                                [key]: Number(event.target.value),
-                              },
+                  <Field label="默认最多动作数">
+                    <input
+                      type="number"
+                      className="field"
+                      value={policy.defaultMaxActions}
+                      onChange={(event) =>
+                        patch((current) => ({
+                          ...current,
+                          strategies: {
+                            ...current.strategies,
+                            [mode]: {
+                              ...current.strategies[mode],
+                              defaultMaxActions: Number(event.target.value),
                             },
-                          }))
-                        }
-                      />
-                    </Field>
-                  ))}
+                          },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="篇幅倍率（相对能量档）">
+                    <input
+                      type="number"
+                      step={0.05}
+                      className="field"
+                      value={policy.lengthMultiplier}
+                      onChange={(event) =>
+                        patch((current) => ({
+                          ...current,
+                          strategies: {
+                            ...current.strategies,
+                            [mode]: {
+                              ...current.strategies[mode],
+                              lengthMultiplier: Number(event.target.value),
+                            },
+                          },
+                        }))
+                      }
+                    />
+                  </Field>
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -631,7 +600,7 @@ export const BehaviorConfigEditor = forwardRef<
                         }))
                       }
                     />
-                    allowWorldview
+                    允许自然带出世界观
                   </label>
                 </div>
               </div>
@@ -640,17 +609,23 @@ export const BehaviorConfigEditor = forwardRef<
         </div>
       </Collapsible>
 
-      <Collapsible title="Worldview Scheduler 世界观调度">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <Collapsible title="8. 世界观出现频率">
+        <div className="space-y-3">
+          <PlannerHint>
+            控制「多久自然提一次雨林」。目标占比大约 25% 合格轮次；间隔与冷却避免连讲或重复同一段。
+          </PlannerHint>
+          <div className="grid gap-3 sm:grid-cols-2">
           {(
             [
-              ["organicTargetRate", "目标自然世界观占比", 0.01],
-              ["rollingEligibleWindow", "滚动合格窗口", 1],
-              ["minEligibleTurnsBetweenOrganic", "最小合格间隔", 1],
-              ["maxEligibleTurnsBetweenOrganic", "最大合格间隔", 1],
-              ["minAssistantTurnsBetweenAnyWorldview", "任意世界观最小 assistant 间隔", 1],
-              ["seedCooldownTurns", "种子冷却轮次", 1],
-              ["maxWorldviewShare", "W2 篇幅占比上限", 0.05],
+              ["organicTargetRate", "自然提及目标占比（0–1）", 0.01],
+              ["rollingEligibleWindow", "统计窗口（最近多少合格轮）", 1],
+              ["minEligibleTurnsBetweenOrganic", "两次自然提及最少间隔", 1],
+              ["maxEligibleTurnsBetweenOrganic", "两次自然提及最大间隔", 1],
+              ["minAssistantTurnsBetweenAnyWorldview", "任意世界观之间最少回复间隔", 1],
+              ["seedCooldownTurns", "同一颗种子冷却轮次", 1],
+              ["seedGroupCooldownTurns", "同一主题组冷却轮次", 1],
+              ["seedSelectTopK", "选种抖动窗口（前K名）", 1],
+              ["maxWorldviewShare", "世界观最多占回复篇幅比例", 0.05],
             ] as const
           ).map(([key, label, step]) => (
             <Field key={key} label={label}>
@@ -671,8 +646,30 @@ export const BehaviorConfigEditor = forwardRef<
               />
             </Field>
           ))}
+          <Field label="选种抖动方式">
+            <select
+              className="field"
+              value={config.worldview.seedSelectJitter}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  worldview: {
+                    ...current.worldview,
+                    seedSelectJitter: event.target.value as
+                      | "off"
+                      | "weighted"
+                      | "uniform",
+                  },
+                }))
+              }
+            >
+              <option value="weighted">按相关分加权（推荐）</option>
+              <option value="uniform">前K名均匀随机</option>
+              <option value="off">始终最高分（旧行为）</option>
+            </select>
+          </Field>
           <div className="sm:col-span-2">
-            <Field label="禁词表（每行一个）">
+            <Field label="禁止出现的旧设定词（每行一个）">
               <textarea
                 className="field min-h-32"
                 value={config.worldview.canonLint.forbiddenLegacyTerms.join("\n")}
@@ -693,99 +690,208 @@ export const BehaviorConfigEditor = forwardRef<
               />
             </Field>
           </div>
+          </div>
         </div>
       </Collapsible>
 
-      <Collapsible title={`Worldview Canon 事实库（${config.canonFacts.length}）`}>
-        <CanonFactsEditor
-          facts={config.canonFacts}
-          onChange={(canonFacts) =>
-            patch((current) => ({ ...current, canonFacts }))
-          }
-        />
-      </Collapsible>
-
-      <Collapsible title={`Worldview Seeds 种子库（${config.worldviewSeeds.length}）`}>
-        <SeedsEditor
-          seeds={config.worldviewSeeds}
-          onChange={(worldviewSeeds) =>
-            patch((current) => ({ ...current, worldviewSeeds }))
-          }
-        />
-      </Collapsible>
-
-      <Collapsible title={`Behavior Examples 示例卡（${config.exampleCards.length}）`}>
-        <ExampleCardsEditor
-          cards={config.exampleCards}
-          onChange={(exampleCards) =>
-            patch((current) => ({ ...current, exampleCards }))
-          }
-        />
-      </Collapsible>
-
-      <Collapsible title="Example Retrieval 示例检索">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <Collapsible title="9. 重大事件（丧失等）">
+        <div className="space-y-3">
+          <PlannerHint>
+            用户第一次提到重大负面事件时，压短回复、避免急着给建议。指纹用来避免重复当「第一次」。
+          </PlannerHint>
+          <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input
               type="checkbox"
-              checked={config.exampleRetrieval.enabled}
+              checked={config.majorEvent.enabled}
               onChange={(event) =>
                 patch((current) => ({
                   ...current,
-                  exampleRetrieval: {
-                    ...current.exampleRetrieval,
+                  majorEvent: {
+                    ...current.majorEvent,
                     enabled: event.target.checked,
                   },
                 }))
               }
             />
-            启用示例检索
+            启用重大事件处理
           </label>
-          <Field label="minScore">
-            <input
-              type="number"
-              step="0.05"
-              className="field"
-              value={config.exampleRetrieval.minScore}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  exampleRetrieval: {
-                    ...current.exampleRetrieval,
-                    minScore: Number(event.target.value),
-                  },
-                }))
-              }
-            />
-          </Field>
-          <Field label="maxChars">
-            <input
-              type="number"
-              className="field"
-              value={config.exampleRetrieval.maxChars}
-              onChange={(event) =>
-                patch((current) => ({
-                  ...current,
-                  exampleRetrieval: {
-                    ...current.exampleRetrieval,
-                    maxChars: Number(event.target.value),
-                  },
-                }))
-              }
-            />
-          </Field>
+          {(
+            [
+              ["fingerprintSimilarityThreshold", "判定「同一件事」的相似度", 0.05],
+              ["fingerprintRetentionMonths", "指纹保留月数", 1],
+              ["firstMentionHardMaxChars", "首次提及时回复硬上限（字）", 1],
+              ["firstMentionMaxSentences", "首次提及时最多几句", 1],
+            ] as const
+          ).map(([key, label, step]) => (
+            <Field key={key} label={label}>
+              <input
+                type="number"
+                step={step}
+                className="field"
+                value={config.majorEvent[key]}
+                onChange={(event) =>
+                  patch((current) => ({
+                    ...current,
+                    majorEvent: {
+                      ...current.majorEvent,
+                      [key]: Number(event.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+          ))}
+          </div>
         </div>
       </Collapsible>
 
-      <Collapsible title="Safety Rules 安全规则">
+      <Collapsible title="10. 安全规则">
+        <PlannerHint>
+          命中紧急规则时不走正常聊天，直接用占位回复。改关键词请谨慎。
+        </PlannerHint>
         <SafetyRulesEditor
           safety={config.safety}
           onChange={(safety) => patch((current) => ({ ...current, safety }))}
         />
       </Collapsible>
 
-      <Collapsible title="Response Contract（只读）">
-        <ReadonlyJson value={config.responseContract} />
+      <Collapsible title="进阶：本轮意图识别（一般不用改）">
+        <div className="space-y-3">
+          <PlannerHint>
+            用轻量模型判断本轮是陪伴、直接回答还是结束等。不确定时保持默认即可。
+          </PlannerHint>
+          <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={config.router.enabled}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: { ...current.router, enabled: event.target.checked },
+                }))
+              }
+            />
+            启用意图识别
+          </label>
+          <Field label="识别方式">
+            <select
+              className="field"
+              value={config.router.mode}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: {
+                    ...current.router,
+                    mode: event.target.value as typeof config.router.mode,
+                  },
+                }))
+              }
+            >
+              <option value="llm">用小模型判断（推荐）</option>
+              <option value="rules">只用规则</option>
+              <option value="fixed">固定默认意图</option>
+            </select>
+          </Field>
+          <Field label="供应商">
+            <select
+              className="field"
+              value={config.router.provider}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: {
+                    ...current.router,
+                    provider: event.target.value as ProviderId,
+                  },
+                }))
+              }
+            >
+              {PROVIDERS.map((provider) => (
+                <option key={provider} value={provider}>
+                  {labelOf(PROVIDER_LABELS, provider)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="模型 ID">
+            <input
+              className="field"
+              value={config.router.modelId}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: { ...current.router, modelId: event.target.value },
+                }))
+              }
+            />
+          </Field>
+          <Field label="最低置信度（低于则回退规则）">
+            <input
+              type="number"
+              step="0.05"
+              className="field"
+              value={config.router.minOverallConfidence}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: {
+                    ...current.router,
+                    minOverallConfidence: Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </Field>
+          <Field label="超时（毫秒）">
+            <input
+              type="number"
+              className="field"
+              value={config.router.timeoutMs}
+              onChange={(event) =>
+                patch((current) => ({
+                  ...current,
+                  router: {
+                    ...current.router,
+                    timeoutMs: Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </Field>
+          </div>
+        </div>
+      </Collapsible>
+
+      <Collapsible title="进阶：技术信息（只读）">
+        <div className="space-y-3">
+          <PlannerHint>
+            给开发对照版本用。导出配置时文件名会带指纹前几位。策划日常可忽略。
+          </PlannerHint>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <div>
+              <dt className="text-[var(--color-muted)]">配置指纹</dt>
+              <dd className="mono break-all">{config.configHash}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--color-muted)]">是否已保存到服务器</dt>
+              <dd>{persisted ? "是" : "否（默认起步包）"}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--color-muted)]">分类体系版本</dt>
+              <dd>{config.taxonomyVersion}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--color-muted)]">世界观内容版本</dt>
+              <dd>{config.worldviewVersion}</dd>
+            </div>
+          </dl>
+          <p className="text-sm font-medium">请求标志（只读）</p>
+          <ReadonlyJson value={config.requestFlags} />
+          <p className="text-sm font-medium">输出格式合同（只读）</p>
+          <ReadonlyJson value={config.responseContract} />
+        </div>
       </Collapsible>
     </div>
   );

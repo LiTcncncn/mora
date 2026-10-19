@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import type {
   BehaviorExampleCard,
   ExampleReviewStatus,
@@ -11,7 +13,9 @@ import type {
   WorldviewCanonFact,
   WorldviewSeed,
 } from "@/domain/worldview-v2";
+import { worldviewSeedSchema } from "@/domain/worldview-v2";
 import { Collapsible, Field, Notice } from "@/components/ui/primitives";
+import { ENERGY_LEVEL_LABELS, labelOf, RESPONSE_MODE_LABELS } from "@/lib/labels";
 
 export function CanonFactsEditor({
   facts,
@@ -125,22 +129,17 @@ export function CanonFactsEditor({
   );
 }
 
-const SEED_RESPONSE_MODES: ResponseMode[] = [
-  "COMPANION",
-  "ASK_LIGHT",
-  "DIRECT_ANSWER",
-  "ONE_STEP_HELP",
-  "CONFIRM_CHOICE",
-  "CELEBRATE",
-  "REPAIR",
-  "CLOSE",
-];
+const worldviewSeedsJsonSchema = z.array(worldviewSeedSchema).max(2000);
 
-const SEED_ENERGY_LEVELS: EnergyLevel[] = ["E0", "E1", "E2", "E3"];
+function formatSeedsJson(seeds: WorldviewSeed[]): string {
+  return JSON.stringify(seeds, null, 2);
+}
 
-function toggleListValue<T extends string>(list: T[], value: T, on: boolean): T[] {
-  if (on) return list.includes(value) ? list : [...list, value];
-  return list.filter((item) => item !== value);
+function formatZodIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "格式不符合种子结构";
+  const path = issue.path.length > 0 ? issue.path.join(".") : "根";
+  return `${path}：${issue.message}`;
 }
 
 export function SeedsEditor({
@@ -150,222 +149,59 @@ export function SeedsEditor({
   seeds: WorldviewSeed[];
   onChange: (next: WorldviewSeed[]) => void;
 }) {
-  const update = (index: number, patch: Partial<WorldviewSeed>): void => {
-    onChange(
-      seeds.map((item, position) =>
-        position === index ? { ...item, ...patch } : item,
-      ),
-    );
-  };
+  const [text, setText] = useState(() => formatSeedsJson(seeds));
+  const [error, setError] = useState<string | null>(null);
+  const syncedJsonRef = useRef(formatSeedsJson(seeds));
 
-  const add = (): void => {
-    onChange([
-      ...seeds,
-      {
-        id: `seed-${crypto.randomUUID()}`,
-        title: "新种子",
-        tags: [],
-        triggerDescription: "",
-        memory: "",
-        attitude: "",
-        allowedResponseModes: ["COMPANION"],
-        energyFit: ["E1", "E2", "E3"],
-        allowedModes: ["W1"],
-        blockedMajorEventTypes: [],
-        avoidClaims: [],
-        cooldownGroup: "ordinary",
-        canonFactIds: [],
-        enabled: false,
-        version: 1,
-      },
-    ]);
+  useEffect(() => {
+    const next = formatSeedsJson(seeds);
+    if (next === syncedJsonRef.current) return;
+    syncedJsonRef.current = next;
+    setText(next);
+    setError(null);
+  }, [seeds]);
+
+  const tryApply = (raw: string): void => {
+    setText(raw);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      setError("JSON 无法解析");
+      return;
+    }
+
+    const result = worldviewSeedsJsonSchema.safeParse(parsed);
+    if (!result.success) {
+      setError(formatZodIssue(result.error));
+      return;
+    }
+
+    setError(null);
+    const normalized = formatSeedsJson(result.data);
+    syncedJsonRef.current = normalized;
+    if (JSON.stringify(result.data) !== JSON.stringify(seeds)) {
+      onChange(result.data);
+    }
   };
 
   return (
     <div className="space-y-3">
       <p className="text-xs text-[var(--color-muted)]">
-        自然世界观（W1/W2）情景种子，共 {seeds.length}{" "}
-        条。标题 / 触发 / 画面 / 态度等均可直接改；默认新建为停用。
+        自然世界观（W1/W2）情景种子整表 JSON，共 {seeds.length}{" "}
+        条。直接改文案即可；结构需保持数组对象格式，保存行为配置时仍会再校验。
       </p>
-      {seeds.map((seed, index) => (
-        <Collapsible
-          key={seed.id}
-          title={`${seed.enabled ? "✓" : "○"} ${seed.title}（${seed.id}）· ${seed.cooldownGroup}`}
-        >
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={seed.enabled}
-                  onChange={(event) =>
-                    update(index, { enabled: event.target.checked })
-                  }
-                />
-                启用
-              </label>
-              <span className="mono text-xs text-[var(--color-muted)]">
-                {seed.id}
-              </span>
-            </div>
-            <Field label="标题">
-              <input
-                className="field"
-                value={seed.title}
-                onChange={(event) => update(index, { title: event.target.value })}
-              />
-            </Field>
-            <Field label="冷却组">
-              <input
-                className="field"
-                value={seed.cooldownGroup}
-                onChange={(event) =>
-                  update(index, { cooldownGroup: event.target.value.trim() || "ordinary" })
-                }
-              />
-            </Field>
-            <Field label="标签（逗号分隔）">
-              <input
-                className="field"
-                value={seed.tags.join("，")}
-                onChange={(event) =>
-                  update(index, {
-                    tags: event.target.value
-                      .split(/[,，]/)
-                      .map((part) => part.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </Field>
-            <Field label="触发描述">
-              <textarea
-                className="field min-h-12"
-                value={seed.triggerDescription}
-                onChange={(event) =>
-                  update(index, { triggerDescription: event.target.value })
-                }
-              />
-            </Field>
-            <Field label="画面 memory（全文可改）">
-              <textarea
-                className="field min-h-20"
-                value={seed.memory}
-                onChange={(event) => update(index, { memory: event.target.value })}
-              />
-            </Field>
-            <Field label="态度 attitude（全文可改）">
-              <textarea
-                className="field min-h-16"
-                value={seed.attitude}
-                onChange={(event) =>
-                  update(index, { attitude: event.target.value })
-                }
-              />
-            </Field>
-            <Field label="额外避免 avoidClaims（一行一条）">
-              <textarea
-                className="field min-h-12"
-                value={seed.avoidClaims.join("\n")}
-                onChange={(event) =>
-                  update(index, {
-                    avoidClaims: event.target.value
-                      .split("\n")
-                      .map((line) => line.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-            </Field>
-            <Field label="适用回复模式">
-              <div className="flex flex-wrap gap-2 text-sm">
-                {SEED_RESPONSE_MODES.map((mode) => (
-                  <label key={mode} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={seed.allowedResponseModes.includes(mode)}
-                      onChange={(event) => {
-                        const next = toggleListValue(
-                          seed.allowedResponseModes,
-                          mode,
-                          event.target.checked,
-                        );
-                        if (next.length === 0) return;
-                        update(index, { allowedResponseModes: next });
-                      }}
-                    />
-                    {mode}
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label="能量档 energyFit">
-              <div className="flex flex-wrap gap-2 text-sm">
-                {SEED_ENERGY_LEVELS.map((level) => (
-                  <label key={level} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={seed.energyFit.includes(level)}
-                      onChange={(event) => {
-                        const next = toggleListValue(
-                          [...seed.energyFit],
-                          level,
-                          event.target.checked,
-                        );
-                        if (next.length === 0) return;
-                        update(index, {
-                          energyFit: SEED_ENERGY_LEVELS.filter((item) =>
-                            next.includes(item),
-                          ),
-                        });
-                      }}
-                    />
-                    {level}
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label="世界观强度 allowedModes">
-              <div className="flex flex-wrap gap-3 text-sm">
-                {(["W1", "W2"] as const).map((mode) => (
-                  <label key={mode} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={seed.allowedModes.includes(mode)}
-                      onChange={(event) => {
-                        const next = toggleListValue(
-                          [...seed.allowedModes],
-                          mode,
-                          event.target.checked,
-                        );
-                        if (next.length === 0) return;
-                        update(index, {
-                          allowedModes: (["W1", "W2"] as const).filter((item) =>
-                            next.includes(item),
-                          ),
-                        });
-                      }}
-                    />
-                    {mode}
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <button
-              type="button"
-              className="btn"
-              onClick={() =>
-                onChange(seeds.filter((_, position) => position !== index))
-              }
-            >
-              删除
-            </button>
-          </div>
-        </Collapsible>
-      ))}
-      <button type="button" className="btn btn-primary" onClick={add}>
-        新增种子
-      </button>
+      <textarea
+        className="field min-h-[28rem] font-mono text-xs leading-5"
+        spellCheck={false}
+        value={text}
+        onChange={(event) => tryApply(event.target.value)}
+        onBlur={() => {
+          if (error) return;
+          setText(syncedJsonRef.current);
+        }}
+      />
+      {error ? <Notice tone="error">{error}</Notice> : null}
     </div>
   );
 }
@@ -411,16 +247,22 @@ export function ExampleCardsEditor({
   return (
     <div className="space-y-3">
       <p className="text-xs text-[var(--color-muted)]">
-        只有 reviewStatus=approved 且 enabled 的卡片会进入检索。默认新建为 pending。
+        只有「已通过」且勾选启用的卡片会进入检索。新建默认是待审核。
       </p>
       {cards.map((card, index) => (
         <Collapsible
           key={card.id}
-          title={`${card.reviewStatus} · ${card.name}（${card.id}）`}
+          title={`${card.name} · ${
+            card.reviewStatus === "approved"
+              ? "已通过"
+              : card.reviewStatus === "rejected"
+                ? "已拒绝"
+                : "待审核"
+          }${card.enabled ? "" : " · 未启用"}`}
         >
           <div className="space-y-2">
             <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Response Mode">
+              <Field label="适用意图">
                 <select
                   className="field"
                   value={card.responseMode}
@@ -443,7 +285,7 @@ export function ExampleCardsEditor({
                     ] as ResponseMode[]
                   ).map((mode) => (
                     <option key={mode} value={mode}>
-                      {mode}
+                      {labelOf(RESPONSE_MODE_LABELS, mode)}
                     </option>
                   ))}
                 </select>
@@ -458,9 +300,9 @@ export function ExampleCardsEditor({
                     })
                   }
                 >
-                  <option value="pending">pending 待审核</option>
-                  <option value="approved">approved 已通过</option>
-                  <option value="rejected">rejected 已拒绝</option>
+                  <option value="pending">待审核</option>
+                  <option value="approved">已通过</option>
+                  <option value="rejected">已拒绝</option>
                 </select>
               </Field>
             </div>
@@ -538,7 +380,7 @@ export function EnergyBudgetGrid({
       {levels.map((level) => {
         const budget = budgets[level];
         return (
-          <Collapsible key={level} title={`${level} · ${budget.label}`}>
+          <Collapsible key={level} title={labelOf(ENERGY_LEVEL_LABELS, level)}>
             <div className="grid gap-2 sm:grid-cols-2">
               {(
                 [
@@ -690,20 +532,59 @@ export function ValidationNotice({
 }) {
   if (blocking.length === 0 && warnings.length === 0) return null;
 
-  const blockingLabels = blocking.map(
-    (item) => `${item.kind} ${item.id} 无法启用`,
-  );
+  const kindLabel: Record<string, string> = {
+    seed: "情景种子",
+    example: "示例卡",
+    fact: "世界观事实",
+    canonFact: "世界观事实",
+  };
+
+  const blockingLabels = blocking.map((item) => {
+    const kind = kindLabel[item.kind] ?? item.kind;
+    return `${kind}「${item.id}」暂时无法启用`;
+  });
+
+  const humanize = (issue: { code: string; message: string }): string => {
+    if (issue.code === "example.below_threshold") {
+      const modeMatch = issue.message.match(/^(\w+) 只有/);
+      const mode = modeMatch?.[1];
+      const modeZh =
+        mode && mode in RESPONSE_MODE_LABELS
+          ? RESPONSE_MODE_LABELS[mode]
+          : mode;
+      if (issue.message.includes("高频")) {
+        return `${modeZh}：可用示例偏少。日常若很少走到这个意图，可先不补；要稳住口吻再补到约 5 条。`;
+      }
+      return `${modeZh}：可用示例偏少。不影响聊天，想加强这类口吻时再补到约 3 条。`;
+    }
+    if (issue.code === "example.energy_spread_low") {
+      return "有的示例卡能量档覆盖太窄，建议同一意图下至少覆盖两个能量档。";
+    }
+    if (issue.code === "example.avoid_below_threshold") {
+      return "「避免提问」类示例还不够。想减少追问感时，可多写几张 avoid 示例。";
+    }
+    if (issue.code.startsWith("worldview.") && issue.message.includes("rollingEligibleWindow")) {
+      return "世界观频率参数不太匹配：统计窗口偏短，长期占比可能飘。可把「统计窗口」调到「最大间隔」的两倍以上，或先忽略（仍可正常聊天）。";
+    }
+    if (issue.message.includes("禁词") || issue.message.includes("废弃")) {
+      return `内容里可能还有旧设定词：${issue.message}`;
+    }
+    return issue.message;
+  };
 
   return (
     <div className="space-y-2">
       {blocking.length > 0 ? (
-        <Notice tone="error">以下条目无法启用：{blockingLabels.join("；")}</Notice>
+        <Notice tone="error">
+          下面这些条目校验未通过，保存后会保持停用：{blockingLabels.join("；")}
+        </Notice>
       ) : null}
       {warnings.length > 0 ? (
-        <Notice tone="warning">
+        <Notice>
+          <p className="mb-1 font-medium">内容建议（不挡保存，也不挡聊天）</p>
           <ul className="list-disc space-y-1 pl-4">
             {warnings.map((issue, index) => (
-              <li key={`${issue.code}-${index}`}>{issue.message}</li>
+              <li key={`${issue.code}-${index}`}>{humanize(issue)}</li>
             ))}
           </ul>
         </Notice>
@@ -711,3 +592,4 @@ export function ValidationNotice({
     </div>
   );
 }
+

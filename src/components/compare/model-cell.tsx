@@ -18,7 +18,7 @@ export function ModelCell({
   onOpenRun,
 }: {
   lane: LaneCell;
-  onOpenRun: (runId: string) => void;
+  onOpenRun?: (runId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -109,16 +109,18 @@ export function ModelCell({
                       复制全文
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="block underline"
-                    onClick={() => {
-                      setInfoOpen(false);
-                      onOpenRun(run.id);
-                    }}
-                  >
-                    查看 Run 运行记录
-                  </button>
+                  {onOpenRun ? (
+                    <button
+                      type="button"
+                      className="block underline"
+                      onClick={() => {
+                        setInfoOpen(false);
+                        onOpenRun(run.id);
+                      }}
+                    >
+                      查看 Run 运行记录
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <p className="mt-2 border-t pt-2 text-[var(--color-muted)]">

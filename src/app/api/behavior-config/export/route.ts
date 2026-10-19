@@ -1,4 +1,5 @@
 import { handleRoute, requireQueryParam } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { AppError } from "@/server/api/errors";
 import { behaviorConfigRepository } from "@/server/config/behavior-repository";
 import {
@@ -29,6 +30,7 @@ const KINDS: readonly TransferKind[] = [
  */
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const profileId = requireQueryParam(request, "profileId");
     const kind = (new URL(request.url).searchParams.get("kind") ??
       "mora_behavior_config") as TransferKind;

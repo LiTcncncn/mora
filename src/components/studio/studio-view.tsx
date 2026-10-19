@@ -121,7 +121,7 @@ export function StudioView() {
     }
   };
 
-  if (!activeProfileId) return <p className="text-sm">正在加载档案…</p>;
+  if (!activeProfileId) return <p className="text-sm">正在加载配置…</p>;
   if (error && !persona) return <Notice tone="error">{error}</Notice>;
   if (!persona || !preset || !settings) return <p className="text-sm">加载中…</p>;
 

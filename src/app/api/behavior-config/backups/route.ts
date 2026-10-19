@@ -5,6 +5,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { listBackups, readBackup } from "@/server/config/behavior-backup";
 import { behaviorConfigRepository } from "@/server/config/behavior-repository";
 import { buildCoverageMatrix } from "@/server/config/behavior-validate";
@@ -32,6 +33,7 @@ const restoreBodySchema = z.object({
  */
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(restoreBodySchema, await readJsonBody(request));
     const profile = await profileRepository.requireProfile(body.profileId);
 

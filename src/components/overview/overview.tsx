@@ -9,7 +9,7 @@ import { api, errorMessage } from "@/lib/api-client";
 import { labelOf, PROVIDER_LABELS } from "@/lib/labels";
 
 export function Overview() {
-  const { activeProfile, activeProfileId, providerStatus } = useProfiles();
+  const { activeProfileId, providerStatus } = useProfiles();
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [memoryCount, setMemoryCount] = useState(0);
@@ -55,7 +55,6 @@ export function Overview() {
       ) : null}
 
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="当前档案" value={activeProfile?.name ?? "—"} />
         <Stat label="启用模型槽位" value={`${enabledSlots.length} 个`} />
         <Stat
           label="最近 run 运行记录"

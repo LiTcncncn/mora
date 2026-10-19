@@ -7,6 +7,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { buildContext } from "@/server/context/builder";
 import { prepareSharedTurnContext } from "@/server/orchestration/prepare-turn";
 import {
@@ -44,6 +45,7 @@ function emptyConversation(profileId: string): Conversation {
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(bodySchema, await readJsonBody(request));
     const settings = await settingsRepository.get(body.profileId);
 

@@ -8,7 +8,8 @@ ZHAKA Lab 是一个**本地单机 Web 实验台**，用于调试树懒气质的�
 
 - **多模型并行比较**：一次输入，全部启用的模型槽位同时回复，各自独立成列。
 - **独立对话分支**：每个槽位维护自己的 assistant 历史。首轮上下文完全一致，之后各自分叉，界面同时显示共享 hash 与各槽位 hash。
-- **本地测试档案**：无登录，但不同档案的设置、Persona、对话、Memory 与运行记录完全隔离。
+- **账号与权限**：无注册；`accounts.json` 维护 1 管理员 + 若干体验账号。管理员可改配置；体验账号仅聊天，对话与记忆存本机浏览器。
+- **单一生效配置**：服务器只保留一份当前配置（工程内部仍用默认配置槽存储）；用导出/导入与自动备份做版本回滚。
 - **可解释的 Energy 判定**：规则、阈值、关键词全部在设置中可见可改，判定依据写入每次运行记录。
 - **可控的结构化记忆**：每轮自动从**用户原话**提取并默认写入正式记忆，下一轮起可进入上下文；设置中可改回「写入前需人工确认」。已写入的条目仍可在 Memory 页修改或删除。
 - **如实呈现失败**：任何模型调用失败只显示「调用失败」。没有预设话术、没有规则生成文本、不复用其他模型的结果。
@@ -40,8 +41,12 @@ npm run dev
 | `DEEPSEEK_API_KEY` | DeepSeek API Key，可留空 |
 | `DEEPSEEK_BASE_URL` | DeepSeek 地址，默认 `https://api.deepseek.com` |
 | `MORA_DATA_DIR` | 本地数据目录，默认 `./data` |
+| `SESSION_SECRET` | 登录会话签名密钥（≥16 字符）；生产环境必填 |
+| `COOKIE_SECURE` | 设为 `true` 时会话 Cookie 带 Secure（需 HTTPS） |
 
 未配置某个 Key 时，对应槽位会在调用时显示「调用失败」，其他槽位不受影响。
+
+首次访问会跳转登录页。账号清单见 `data-seed/accounts.json`（口令见 `ZHAKA_账号与权限系统设计.md` §12.5）。修改账号文件后需**重启服务**。重新生成哈希：`npx tsx scripts/hash-accounts.ts`。
 
 ## 数据存放位置
 
@@ -49,13 +54,15 @@ npm run dev
 
 ```
 data/
-  profiles.json          测试档案列表
-  settings.json          每个档案的设置
+  accounts.json          登录账号（改后需重启）
+  usage.jsonl            匿名用量日志（无聊天原文）
+  profiles.json          当前配置槽元数据（已不再提供多档案 UI）
+  settings.json          设置
   personas.json          Persona
   prompt-presets.json    Prompt 分区模板
-  memories.json          记忆与候选
-  conversations.json     对话与消息
-  runs.json              运行记录与上下文快照
+  memories.json          记忆与候选（管理员）
+  conversations.json     对话与消息（管理员）
+  runs.json              运行记录与上下文快照（管理员）
   evals.json             预留，首版不写入
 ```
 
@@ -65,16 +72,16 @@ data/
 
 | 页面 | 用途 |
 | --- | --- |
-| 总览 | 当前档案、启用槽位、运行与成本概况 |
+| 总览 | 启用槽位、运行与 Memory 概况 |
 | 多模型对话 | 主实验界面，并行调用与结果对比 |
 | Prompt Studio | 编辑 Persona 与上下文分区模板 |
 | Memory | 确认候选、管理与预览记忆选择 |
 | 运行记录 | 每次调用的完整快照与筛选 |
-| 设置 | 模型槽位、生成参数、Energy、Memory、Context、档案与配置导入导出 |
+| 设置 | 配置导入导出、ZHAKA 设定、大模型配置、Energy、Memory、Context |
 
 ## 配置导出与导入
 
-设置页可以把当前档案的**行为配置**导出为 JSON：只包含设置、Persona 与 Prompt Preset。
+设置页可导出**一份完整配置 JSON**：行为配置、世界观、示例卡、Persona、Prompt Preset 与 Settings。
 
 导出文件**不包含** API Key、base URL、路径、对话、Memory 或运行记录。导入时服务端会重新完整校验，安全底线由程序提供，不会被配置文件覆盖。
 
@@ -97,6 +104,6 @@ npm run e2e         # Playwright 端到端测试
 
 ## 边界
 
-首版不包含：语音输入、语音日记、TTS、长期状态轨迹、登录与多用户、云端存储、RAG 与向量检索、模型微调、评分系统与自动评估。
+首版不包含：语音输入、语音日记、TTS、长期状态轨迹、自助注册、云端聊天同步、RAG 与向量检索、模型微调、评分系统与自动评估。
 
 `evals.json` 与 evaluation hook 接口已预留，但首版不提供写入界面。

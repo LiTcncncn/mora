@@ -4,6 +4,7 @@ import {
   handleRoute,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { runRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 /** 列表只返回摘要，完整 context 只在详情返回。 */
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const profileId = requireQueryParam(request, "profileId");
     const url = new URL(request.url);
     const provider = url.searchParams.get("provider");

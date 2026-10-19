@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import type { TestProfile } from "@/domain/profile";
 import { api, errorMessage } from "@/lib/api-client";
 
@@ -20,25 +21,23 @@ interface ProfilesPayload {
 interface ProviderStatus {
   kimi: { configured: boolean };
   deepseek: { configured: boolean };
+  minimax?: { configured: boolean };
 }
 
 interface ProfileContextValue {
-  profiles: TestProfile[];
+  /** 当前生效配置槽 id（工程内部仍按 profileId 分片存储）。 */
   activeProfileId: string | null;
   activeProfile: TestProfile | null;
   providerStatus: ProviderStatus | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  switchProfile: (id: string) => Promise<void>;
-  createProfile: (name: string) => Promise<void>;
-  renameProfile: (id: string, name: string) => Promise<void>;
-  deleteProfile: (id: string) => Promise<void>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [profiles, setProfiles] = useState<TestProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(
@@ -48,6 +47,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (pathname === "/login") {
+      setLoading(false);
+      return;
+    }
     try {
       const [payload, status] = await Promise.all([
         api.get<ProfilesPayload>("/api/profiles"),
@@ -62,7 +65,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     void refresh();
@@ -70,7 +73,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ProfileContextValue>(
     () => ({
-      profiles,
       activeProfileId,
       activeProfile:
         profiles.find((profile) => profile.id === activeProfileId) ?? null,
@@ -78,22 +80,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       refresh,
-      switchProfile: async (id) => {
-        await api.put(`/api/profiles/${id}`, { setActive: true });
-        await refresh();
-      },
-      createProfile: async (name) => {
-        await api.post("/api/profiles", { name });
-        await refresh();
-      },
-      renameProfile: async (id, name) => {
-        await api.put(`/api/profiles/${id}`, { name });
-        await refresh();
-      },
-      deleteProfile: async (id) => {
-        await api.delete(`/api/profiles/${id}`);
-        await refresh();
-      },
     }),
     [profiles, activeProfileId, providerStatus, loading, error, refresh],
   );

@@ -12,6 +12,7 @@ import { selectMemories } from "../memory/selector";
 import { evaluateSafety } from "../safety/evaluate";
 import { buildUrgentBypassRouting } from "../safety/urgent-bypass";
 import { classifyTurn, routingToEnergyResolution } from "../router/classify";
+import { classifyTurnFallback } from "../router/fallback";
 import type { TurnRouterInput } from "@/domain/turn-routing";
 import { buildCompileNotes, compileTurnPlan } from "../policy/turn-plan-compiler";
 import type { TurnPlan } from "@/domain/turn-plan";
@@ -35,6 +36,7 @@ export interface SharedTurnContext {
   energyResolution: EnergyResolution;
   selectedMemories: MemoryItem[];
   memoryTrace: ReturnType<typeof selectMemories>["trace"];
+  memoryTimeWindowLabel: string | null;
   urgentReply: string | null;
   routerMeta: Pick<ClassifyTurnResult, "latencyMs" | "retried" | "retryReason" | "provider" | "modelId">;
   safetyLatencyMs: number;
@@ -155,6 +157,49 @@ export function applyBehaviorTraceAfterContext(input: {
   return { ...input.behaviorTrace, worldview };
 }
 
+/** 超时就先用规则层结果。慢请求在后台自行结束，结果丢弃。 */
+async function classifyTurnWithinBudget(
+  routerInput: TurnRouterInput,
+  config: BehaviorConfigV2,
+  budgetMs: number | undefined,
+): Promise<ClassifyTurnResult> {
+  if (budgetMs === 0) {
+    const routing = classifyTurnFallback(routerInput, config.requestFlags);
+    return {
+      routing: { ...routing, requestFlags: { ...routing.requestFlags, source: "fallback" } },
+      latencyMs: 0,
+      retried: false,
+      retryReason: "语音对话跳过网络 Router，先用规则结果",
+      provider: config.router.provider,
+      modelId: config.router.modelId,
+    };
+  }
+  if (budgetMs == null || !config.router.enabled || config.router.mode !== "llm") {
+    return classifyTurn(routerInput, config);
+  }
+  const started = Date.now();
+  let timer: NodeJS.Timeout | undefined;
+  const fallback = new Promise<ClassifyTurnResult>((resolve) => {
+    timer = setTimeout(() => {
+      const routing = classifyTurnFallback(routerInput, config.requestFlags);
+      resolve({
+        routing: { ...routing, requestFlags: { ...routing.requestFlags, source: "fallback" } },
+        latencyMs: Date.now() - started,
+        retried: false,
+        retryReason: `语音对话 Router 超过 ${budgetMs}ms，先用规则结果`,
+        provider: config.router.provider,
+        modelId: config.router.modelId,
+      });
+    }, budgetMs);
+  });
+  const llm = classifyTurn(routerInput, config);
+  try {
+    return await Promise.race([llm, fallback]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Compare / Preview 共享的 1.1 行为管线。 */
 export async function prepareSharedTurnContext(input: {
   profileId: string;
@@ -165,6 +210,7 @@ export async function prepareSharedTurnContext(input: {
   settings: Pick<SettingsData, "memory" | "energy">;
   memories: MemoryItem[];
   energyOverride?: EnergyLevel;
+  routerBudgetMs?: number;
 }): Promise<SharedTurnContext> {
   const behaviorConfig = await behaviorConfigRepository.get(
     input.profileId,
@@ -197,7 +243,7 @@ export async function prepareSharedTurnContext(input: {
         provider: behaviorConfig.router.provider,
         modelId: behaviorConfig.router.modelId,
       }
-    : await classifyTurn(routerInput, behaviorConfig);
+    : await classifyTurnWithinBudget(routerInput, behaviorConfig, input.routerBudgetMs);
   const routing = classified.routing;
 
   const basePlan = compileTurnPlan({
@@ -277,6 +323,7 @@ export async function prepareSharedTurnContext(input: {
     },
     selectedMemories: memorySelection.selected,
     memoryTrace: memorySelection.trace,
+    memoryTimeWindowLabel: memorySelection.timeWindow?.label ?? null,
     urgentReply,
     routerMeta,
     safetyLatencyMs,

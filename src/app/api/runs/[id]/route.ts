@@ -3,6 +3,7 @@ import {
   handleRoute,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { runRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     const run = await runRepository.get(profileId, id);
@@ -46,6 +48,7 @@ export async function DELETE(
   context: Params,
 ): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     await runRepository.remove(profileId, id);

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell/app-shell";
+import { AuthProvider } from "@/components/app-shell/auth-context";
 import { ProfileProvider } from "@/components/app-shell/profile-context";
 import "./globals.css";
 
@@ -16,9 +17,11 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <ProfileProvider>
-          <AppShell>{children}</AppShell>
-        </ProfileProvider>
+        <AuthProvider>
+          <ProfileProvider>
+            <AppShell>{children}</AppShell>
+          </ProfileProvider>
+        </AuthProvider>
       </body>
     </html>
   );

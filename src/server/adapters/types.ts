@@ -43,10 +43,19 @@ export interface UnifiedModelResult {
   finishReason: FinishReason;
 }
 
+export type ModelStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; result: UnifiedModelResult };
+
 export interface ModelAdapter {
   id: ProviderId;
   getCapabilities(modelId: string): ModelCapabilities;
   complete(request: UnifiedModelRequest): Promise<UnifiedModelResult>;
+  /** 只产出正文增量；推理内容不外露。 */
+  stream(
+    request: UnifiedModelRequest,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ModelStreamEvent>;
   testConnection(modelId: string): Promise<{
     ok: boolean;
     message: string;

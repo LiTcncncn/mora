@@ -25,6 +25,30 @@ export const MEMORY_TYPES: readonly MemoryType[] = [
 export const memoryStatusSchema = z.enum(["active", "candidate", "archived"]);
 export type MemoryStatus = z.infer<typeof memoryStatusSchema>;
 
+/** 事发日精度：unknown 表示无可用日历锚定。 */
+export const memoryOccurredPrecisionSchema = z.enum([
+  "day",
+  "week",
+  "month",
+  "unknown",
+]);
+export type MemoryOccurredPrecision = z.infer<
+  typeof memoryOccurredPrecisionSchema
+>;
+
+export const memoryTimeSourceSchema = z.enum([
+  "user_stated",
+  "inferred_from_chat",
+  "manual",
+  "none",
+]);
+export type MemoryTimeSource = z.infer<typeof memoryTimeSourceSchema>;
+
+/** 日历日：YYYY-MM-DD（产品时区下的民事日）。 */
+export const calendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "须为 YYYY-MM-DD");
+
 export const memoryItemSchema = z.object({
   id: idSchema,
   profileId: idSchema,
@@ -45,7 +69,13 @@ export const memoryItemSchema = z.object({
   lastUsedAt: isoDateTimeSchema.nullable(),
   useCount: z.number().int().nonnegative(),
   expiresAt: isoDateTimeSchema.nullable(),
-});
+  /** 事件锚定日（民事日）；与 createdAt（写入系统时间）分离。 */
+  occurredOn: calendarDateSchema.nullable().default(null),
+  /** 跨日事件结束日（含）；单日事件为 null。 */
+  occurredEndOn: calendarDateSchema.nullable().default(null),
+  occurredPrecision: memoryOccurredPrecisionSchema.default("unknown"),
+  timeSource: memoryTimeSourceSchema.default("none"),
+}).strict();
 export type MemoryItem = z.infer<typeof memoryItemSchema>;
 
 export const memoriesDataSchema = z.object({

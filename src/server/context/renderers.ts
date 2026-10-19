@@ -55,14 +55,32 @@ export function renderPersonaTraits(persona: Persona): string {
 export function renderMemories(
   memories: MemoryItem[],
   settings: ContextSettings,
+  timeWindowLabel?: string | null,
 ): string {
-  if (memories.length === 0) return "（暂时没有相关的长期记忆）";
-  return memories
-    .map((memory) => {
-      if (!settings.includeMemoryMetadata) return `- ${memory.content}`;
-      return `- ${memory.content}（类型：${memory.type}；重要度：${memory.importance}）`;
-    })
-    .join("\n");
+  if (memories.length === 0) {
+    if (timeWindowLabel) {
+      return `（「${timeWindowLabel}」时间范围内暂时没有锚定的长期记忆）`;
+    }
+    return "（暂时没有相关的长期记忆）";
+  }
+  const header = timeWindowLabel
+    ? `以下记忆锚定在「${timeWindowLabel}」附近，回顾时优先引用它们：\n`
+    : "";
+  const lines = memories.map((memory) => {
+    const day =
+      memory.occurredOn != null
+        ? `事发日：${memory.occurredOn}${
+            memory.occurredEndOn ? `～${memory.occurredEndOn}` : ""
+          }；`
+        : "";
+    if (!settings.includeMemoryMetadata) {
+      return memory.occurredOn
+        ? `- [${memory.occurredOn}] ${memory.content}`
+        : `- ${memory.content}`;
+    }
+    return `- ${memory.content}（${day}类型：${memory.type}；重要度：${memory.importance}）`;
+  });
+  return `${header}${lines.join("\n")}`;
 }
 
 export function renderHistory(

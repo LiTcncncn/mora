@@ -85,9 +85,18 @@ export const worldviewSettingsSchema = z.object({
   minAssistantTurnsBetweenAnyWorldview: z.number().int().min(0).max(5),
   countExplicitTowardOrganicRate: z.literal(false),
   maxSeedsPerReply: z.literal(1),
-  /** 计数单位：所有 assistant 轮次。 */
+  /** 计数单位：所有 assistant 轮次。同 seedId 冷却。 */
   seedCooldownTurns: z.number().int().min(0).max(200),
+  /**
+   * 计数单位：所有 assistant 轮次。同 cooldownGroup 冷却。
+   * 取 0 时仅保留 seedGroupNoConsecutive（相邻禁用）。
+   */
+  seedGroupCooldownTurns: z.number().int().min(0).max(200),
   seedGroupNoConsecutive: z.literal(true),
+  /** 相关性够分的前 K 名内抖动选种；1 等价于旧 top-1。 */
+  seedSelectTopK: z.number().int().min(1).max(10),
+  /** off=始终最高分；weighted=按分加权；uniform=前 K 均匀。 */
+  seedSelectJitter: z.enum(["off", "weighted", "uniform"]),
   /** W2 中世界观内容占回复篇幅的比例上限。 */
   maxWorldviewShare: z.number().min(0).max(1),
   canonLint: z.object({
@@ -135,8 +144,11 @@ export function buildDefaultWorldviewSettings(): WorldviewSettings {
     minAssistantTurnsBetweenAnyWorldview: 1,
     countExplicitTowardOrganicRate: false,
     maxSeedsPerReply: 1,
-    seedCooldownTurns: 12,
+    seedCooldownTurns: 16,
+    seedGroupCooldownTurns: 6,
     seedGroupNoConsecutive: true,
+    seedSelectTopK: 3,
+    seedSelectJitter: "weighted",
     maxWorldviewShare: 0.34,
     canonLint: {
       forbiddenLegacyTerms: [...DEFAULT_FORBIDDEN_LEGACY_TERMS],

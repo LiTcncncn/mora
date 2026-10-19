@@ -87,6 +87,30 @@ describe("原子写入", () => {
     await expect(fs.access(`${filePath}.bak`)).resolves.toBeUndefined();
   });
 
+  it("removeAll 只清空指定档案的对话", async () => {
+    const other = await profileRepository.create("其他档案");
+    await conversationRepository.create(DEFAULT_PROFILE, "A");
+    await conversationRepository.create(DEFAULT_PROFILE, "B");
+    await conversationRepository.create(other.id, "C");
+
+    const result = await conversationRepository.removeAll(DEFAULT_PROFILE);
+    expect(result.deletedCount).toBe(2);
+    expect(await conversationRepository.list(DEFAULT_PROFILE)).toHaveLength(0);
+    expect(await conversationRepository.list(other.id)).toHaveLength(1);
+  });
+
+  it("removeAll 只清空指定档案的记忆", async () => {
+    const other = await profileRepository.create("其他档案-记忆");
+    await memoryRepository.create(makeMemory({ id: "m-a", profileId: DEFAULT_PROFILE }));
+    await memoryRepository.create(makeMemory({ id: "m-b", profileId: DEFAULT_PROFILE }));
+    await memoryRepository.create(makeMemory({ id: "m-c", profileId: other.id }));
+
+    const result = await memoryRepository.removeAll(DEFAULT_PROFILE);
+    expect(result.deletedCount).toBe(2);
+    expect(await memoryRepository.list(DEFAULT_PROFILE)).toHaveLength(0);
+    expect(await memoryRepository.list(other.id)).toHaveLength(1);
+  });
+
   it("并发写入串行执行，不丢数据", async () => {
     await Promise.all(
       Array.from({ length: 8 }, (_, index) =>

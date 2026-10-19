@@ -2,6 +2,7 @@ import type { EnergyLevel } from "@/domain/common";
 import type { MajorEventType, ResponseMode } from "@/domain/behavior-taxonomy";
 import type { WorldviewScheduleState } from "@/domain/worldview-schedule";
 import type { WorldviewSeed, WorldviewSettings } from "@/domain/worldview-v2";
+import { fnv1aUnit } from "./hash-unit";
 
 export interface SeedFilterContext {
   responseMode: ResponseMode;
@@ -26,6 +27,25 @@ function isOnCooldown(
   );
 }
 
+function isGroupOnCooldown(
+  seed: WorldviewSeed,
+  context: SeedFilterContext,
+): boolean {
+  const groupCooldown = context.settings.seedGroupCooldownTurns;
+  if (groupCooldown > 0) {
+    return context.scheduleState.recentSeedIds.some(
+      (entry) =>
+        entry.cooldownGroup === seed.cooldownGroup &&
+        context.assistantTurnIndex - entry.assistantTurnIndex < groupCooldown,
+    );
+  }
+
+  if (!context.settings.seedGroupNoConsecutive) return false;
+  const lastOrganic = context.scheduleState.recentSeedIds.at(-1);
+  if (!lastOrganic) return false;
+  return lastOrganic.cooldownGroup === seed.cooldownGroup;
+}
+
 /** §9.9 第一段：模式无关过滤，用于合格轮判定。 */
 export function filterSeedsStage1(
   seeds: WorldviewSeed[],
@@ -46,26 +66,18 @@ export function filterSeedsStage1(
   });
 }
 
-/** §9.9 第二段：命中后过滤。 */
+/** §9.9 第二段：命中后过滤（含同组 K 轮冷却）。 */
 export function filterSeedsStage2(
   seeds: WorldviewSeed[],
   context: SeedFilterContext,
   energyAllowedModes: Array<"W1" | "W2">,
 ): WorldviewSeed[] {
-  const lastOrganic = context.scheduleState.recentSeedIds.at(-1);
-
   return seeds.filter((seed) => {
     const intersection = seed.allowedModes.filter((mode) =>
       energyAllowedModes.includes(mode),
     );
     if (intersection.length === 0) return false;
-
-    if (context.settings.seedGroupNoConsecutive && lastOrganic) {
-      const lastGroup = context.scheduleState.recentSeedIds.find(
-        (entry) => entry.seedId === lastOrganic.seedId,
-      )?.cooldownGroup;
-      if (lastGroup && lastGroup === seed.cooldownGroup) return false;
-    }
+    if (isGroupOnCooldown(seed, context)) return false;
     return true;
   });
 }
@@ -129,32 +141,9 @@ export function scoreSeedForMessage(
   );
 }
 
-/** 软排序后得分最高的种子；得分过低时返回 null，避免「烦躁」误选「下雨」。 */
+/** 软排序后得分阈值；过低时不注入，避免「烦躁」误选「下雨」。 */
 export const MIN_SEED_RELEVANCE_SCORE = 0.22;
 
-export function pickBestSeed(
-  seeds: WorldviewSeed[],
-  input: {
-    userMessage: string;
-    responseMode: ResponseMode;
-    energy: EnergyLevel;
-  },
-): { seed: WorldviewSeed | null; topScore: number } {
-  if (seeds.length === 0) return { seed: null, topScore: 0 };
-  const ranked = [...seeds].sort(
-    (left, right) =>
-      scoreSeedForMessage(right, input.userMessage, input) -
-      scoreSeedForMessage(left, input.userMessage, input),
-  );
-  const top = ranked[0]!;
-  const topScore = scoreSeedForMessage(top, input.userMessage, input);
-  if (topScore < MIN_SEED_RELEVANCE_SCORE) {
-    return { seed: null, topScore };
-  }
-  return { seed: top, topScore };
-}
-
-/** §9.9：第二段过滤后的软排序。 */
 export function rankSeeds(
   seeds: WorldviewSeed[],
   input: {
@@ -168,4 +157,117 @@ export function rankSeeds(
     const rightScore = scoreSeedForMessage(right, input.userMessage, input);
     return rightScore - leftScore;
   });
+}
+
+/** 兼容旧调用：始终取最高分（等价 jitter=off 且 topK=1）。 */
+export function pickBestSeed(
+  seeds: WorldviewSeed[],
+  input: {
+    userMessage: string;
+    responseMode: ResponseMode;
+    energy: EnergyLevel;
+  },
+): { seed: WorldviewSeed | null; topScore: number } {
+  return pickSeedForTurn(seeds, {
+    ...input,
+    settings: {
+      seedSelectTopK: 1,
+      seedSelectJitter: "off",
+    },
+    scheduleSeed: "deterministic",
+    eligibleIndex: 0,
+  });
+}
+
+/**
+ * 在够分的前 K 名内按 jitter 策略选种；unit 由 scheduleSeed+eligibleIndex 派生，可复现。
+ */
+export function pickSeedForTurn(
+  seeds: WorldviewSeed[],
+  input: {
+    userMessage: string;
+    responseMode: ResponseMode;
+    energy: EnergyLevel;
+    settings: Pick<WorldviewSettings, "seedSelectTopK" | "seedSelectJitter">;
+    scheduleSeed: string;
+    eligibleIndex: number;
+  },
+): {
+  seed: WorldviewSeed | null;
+  topScore: number;
+  candidateIds: string[];
+} {
+  if (seeds.length === 0) {
+    return { seed: null, topScore: 0, candidateIds: [] };
+  }
+
+  const ranked = rankSeeds(seeds, input)
+    .map((seed) => ({
+      seed,
+      score: scoreSeedForMessage(seed, input.userMessage, input),
+    }))
+    .filter((item) => item.score >= MIN_SEED_RELEVANCE_SCORE);
+
+  if (ranked.length === 0) {
+    const top = rankSeeds(seeds, input)[0]!;
+    return {
+      seed: null,
+      topScore: scoreSeedForMessage(top, input.userMessage, input),
+      candidateIds: [],
+    };
+  }
+
+  const topScore = ranked[0]!.score;
+  const topK = Math.max(1, Math.min(input.settings.seedSelectTopK, ranked.length));
+  const pool = ranked.slice(0, topK);
+  const candidateIds = pool.map((item) => item.seed.id);
+
+  if (input.settings.seedSelectJitter === "off" || pool.length === 1) {
+    return { seed: pool[0]!.seed, topScore, candidateIds };
+  }
+
+  const unit = fnv1aUnit(
+    `${input.scheduleSeed}:seed-pick:${input.eligibleIndex}:${candidateIds.join(",")}`,
+  );
+
+  if (input.settings.seedSelectJitter === "uniform") {
+    const index = Math.min(pool.length - 1, Math.floor(unit * pool.length));
+    return { seed: pool[index]!.seed, topScore, candidateIds };
+  }
+
+  // weighted：分数为权重
+  const weights = pool.map((item) => Math.max(item.score, 0.01));
+  const sum = weights.reduce((acc, value) => acc + value, 0);
+  let cursor = unit * sum;
+  for (let index = 0; index < pool.length; index += 1) {
+    cursor -= weights[index]!;
+    if (cursor <= 0) {
+      return { seed: pool[index]!.seed, topScore, candidateIds };
+    }
+  }
+  return { seed: pool[pool.length - 1]!.seed, topScore, candidateIds };
+}
+
+/** 近 K 轮用过的组内标签，供 Prompt mustAvoid 去意象复读。 */
+export function recentMotifHints(
+  seeds: WorldviewSeed[],
+  scheduleState: WorldviewScheduleState,
+  assistantTurnIndex: number,
+  lookbackTurns: number,
+  excludeSeedId?: string | null,
+): string[] {
+  if (lookbackTurns <= 0) return [];
+  const byId = new Map(seeds.map((seed) => [seed.id, seed]));
+  const hints: string[] = [];
+  for (const entry of scheduleState.recentSeedIds) {
+    if (excludeSeedId && entry.seedId === excludeSeedId) continue;
+    if (assistantTurnIndex - entry.assistantTurnIndex >= lookbackTurns) continue;
+    const seed = byId.get(entry.seedId);
+    if (!seed) continue;
+    for (const tag of seed.tags.slice(0, 2)) {
+      if (tag && !hints.includes(tag)) hints.push(tag);
+    }
+    if (hints.length >= 8) break;
+  }
+  return hints;
 }

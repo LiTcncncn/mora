@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeForSpeech } from "./sanitize-for-speech";
+import {
+  applyTtsPronunciations,
+  sanitizeForSpeech,
+} from "./sanitize-for-speech";
 
 describe("sanitizeForSpeech", () => {
   it("去掉舞台动作括号", () => {
@@ -26,5 +29,12 @@ describe("sanitizeForSpeech", () => {
   it("去掉半角括号动作", () => {
     const { text } = sanitizeForSpeech("(轻轻挪近一点)怎么突然就哭了。");
     expect(text).toBe("怎么突然就哭了。");
+  });
+
+  it("只为 TTS 把 ZHAKA 转成正确读音", () => {
+    expect(applyTtsPronunciations("我是 ZHAKA，zhaka 在这里。")).toBe(
+      "我是 扎卡，扎卡 在这里。",
+    );
+    expect(sanitizeForSpeech("我是 ZHAKA。").text).toBe("我是 ZHAKA。");
   });
 });

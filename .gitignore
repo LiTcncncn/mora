@@ -19,3 +19,11 @@ test-results/
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# 账号哈希与商业资料不进公开仓库
+data-seed/accounts.json
+*.png
+*.jpg
+*.pdf
+*.key
+*.pptx

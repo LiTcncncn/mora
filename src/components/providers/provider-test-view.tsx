@@ -160,7 +160,7 @@ export function ProviderTestView() {
   const busy = running !== "none";
   const ready = modelId.trim().length > 0;
 
-  if (!activeProfileId) return <p className="text-sm">正在加载档案…</p>;
+  if (!activeProfileId) return <p className="text-sm">正在加载配置…</p>;
 
   return (
     <div className="space-y-4 pb-10">
@@ -190,7 +190,7 @@ export function ProviderTestView() {
               ))}
             </select>
           </Field>
-          <Field label="模型 ID" hint="可从当前档案已配置的模型中选择，也可手动填写。">
+          <Field label="模型 ID" hint="可从当前已配置的模型中选择，也可手动填写。">
             <input
               className="field"
               value={modelId}
@@ -208,7 +208,7 @@ export function ProviderTestView() {
 
         <p className="text-sm text-[var(--color-muted)]">
           API Key 接口密钥：{configured ? "已配置" : "未配置"}
-          {settings ? ` · 当前档案默认模型 ${settings.providers[provider].modelId}` : ""}
+          {settings ? ` · 当前默认模型 ${settings.providers[provider].modelId}` : ""}
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -233,7 +233,7 @@ export function ProviderTestView() {
         <p className="text-xs text-[var(--color-muted)]">
           {ready
             ? "「开始检测」只读取模型列表，不产生生成费用；「真实调用一次」会真的生成一小段文本。"
-            : "正在读取当前档案的模型配置…"}
+            : "正在读取模型配置…"}
         </p>
       </div>
 

@@ -9,6 +9,8 @@ import {
 } from "@/domain/common";
 import type { ConversationMessage } from "@/domain/conversation";
 import type { MemoryItem } from "@/domain/memory";
+import type { Persona } from "@/domain/persona";
+import type { PromptPreset } from "@/domain/prompt";
 import type { ContextSnapshot, RunRecord, SettingsSnapshot } from "@/domain/run";
 import type {
   GenerationOverrides,
@@ -64,7 +66,11 @@ export interface CompareResult {
     status: "succeeded" | "failed" | "disabled";
     candidateIds: string[];
     displayText: "" | typeof CALL_FAILED_TEXT;
+    /** clientPersist 时回传完整候选，供浏览器写入 */
+    candidates?: MemoryItem[];
   };
+  /** 生效配置指纹，供前端提示「配置已更新」 */
+  configHash?: string;
 }
 
 export interface CompareInput {
@@ -75,9 +81,16 @@ export interface CompareInput {
   slotOverrides?:
     | Array<{ modelSlotId: string; generation?: GenerationOverrides }>
     | undefined;
+  /** guest：不写服务器对话/runs/memories，上下文由客户端提供 */
+  clientPersist?: boolean;
+  clientMessages?: ConversationMessage[];
+  clientMemories?: MemoryItem[];
+  /** 强制记忆自动写入语义（guest）：抽取后直接当 active 返回 */
+  forceAutoMemoryWrite?: boolean;
+  actor?: { userId: string; role: string };
 }
 
-function mergeGeneration(
+export function mergeGeneration(
   settings: SettingsData,
   slot: ModelSlot,
   override: GenerationOverrides | undefined,
@@ -86,8 +99,38 @@ function mergeGeneration(
   return { ...base, ...slot.generationOverrides, ...(override ?? {}) };
 }
 
+export function buildSettingsSnapshot(input: {
+  settings: SettingsData;
+  slot: ModelSlot;
+  generation: SettingsData["providers"][ProviderId]["generation"];
+  persona: Persona;
+  promptPreset: PromptPreset;
+  createdAt: string;
+}): SettingsSnapshot {
+  const { settings, slot } = input;
+  return {
+    id: `snap-${randomUUID()}`,
+    createdAt: input.createdAt,
+    common: {
+      energy: settings.energy,
+      memory: settings.memory,
+      context: settings.context,
+      activePersonaId: settings.activePersonaId,
+      activePromptPresetId: settings.activePromptPresetId,
+    },
+    provider: {
+      ...settings.providers[slot.provider],
+      modelId: slot.modelId,
+      generation: input.generation,
+    },
+    personaVersion: input.persona.updatedAt,
+    promptPresetVersion: input.promptPreset.version,
+  };
+}
+
 export async function runCompare(input: CompareInput): Promise<CompareResult> {
   const { profileId, conversationId, userMessage } = input;
+  const clientPersist = Boolean(input.clientPersist);
 
   if (!userMessage.trim()) {
     throw new AppError("VALIDATION_ERROR", "消息不能为空");
@@ -99,14 +142,33 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     throw new AppError("VALIDATION_ERROR", "至少需要启用一个模型槽位");
   }
 
-  const [profile, persona, promptPreset, memories, conversation] =
+  const [profile, persona, promptPreset, serverMemories, serverConversation] =
     await Promise.all([
       profileRepository.requireProfile(profileId),
       personaRepository.get(profileId, settings.activePersonaId),
       promptPresetRepository.get(profileId, settings.activePromptPresetId),
-      memoryRepository.list(profileId),
-      conversationRepository.get(profileId, conversationId),
+      clientPersist
+        ? Promise.resolve([] as MemoryItem[])
+        : memoryRepository.list(profileId),
+      clientPersist
+        ? Promise.resolve(null)
+        : conversationRepository.get(profileId, conversationId),
     ]);
+
+  const memories = clientPersist
+    ? (input.clientMemories ?? [])
+    : serverMemories;
+
+  const conversation = clientPersist
+    ? {
+        id: conversationId,
+        profileId,
+        title: "本地对话",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messages: input.clientMessages ?? [],
+      }
+    : serverConversation!;
 
   const primarySlot = enabledSlots[0]!;
 
@@ -141,10 +203,12 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
   };
 
   // 用户消息先落库：即使全部模型失败，用户输入也不会丢。
-  await conversationRepository.mutate(profileId, conversationId, (current) => ({
-    ...current,
-    messages: [...current.messages, userMessageRecord],
-  }));
+  if (!clientPersist) {
+    await conversationRepository.mutate(profileId, conversationId, (current) => ({
+      ...current,
+      messages: [...current.messages, userMessageRecord],
+    }));
+  }
 
   const overrideBySlot = new Map(
     (input.slotOverrides ?? []).map((item) => [item.modelSlotId, item.generation]),
@@ -171,6 +235,7 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
       energyResolution: sharedTurn.energyResolution,
       selectedMemories: sharedTurn.selectedMemories,
       memoryTrace: sharedTurn.memoryTrace,
+      memoryTimeWindowLabel: sharedTurn.memoryTimeWindowLabel,
       promptPreset,
       settings: {
         context: settings.context,
@@ -195,24 +260,15 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     renderedInstructions: prepared[0]!.contextSnapshot.renderedInstructions,
   });
 
-  const settingsSnapshotFor = (slot: ModelSlot): SettingsSnapshot => ({
-    id: `snap-${randomUUID()}`,
-    createdAt: startedAt,
-    common: {
-      energy: settings.energy,
-      memory: settings.memory,
-      context: settings.context,
-      activePersonaId: settings.activePersonaId,
-      activePromptPresetId: settings.activePromptPresetId,
-    },
-    provider: {
-      ...settings.providers[slot.provider],
-      modelId: slot.modelId,
+  const settingsSnapshotFor = (slot: ModelSlot): SettingsSnapshot =>
+    buildSettingsSnapshot({
+      settings,
+      slot,
       generation: mergeGeneration(settings, slot, overrideBySlot.get(slot.id)),
-    },
-    personaVersion: persona.updatedAt,
-    promptPresetVersion: promptPreset.version,
-  });
+      persona,
+      promptPreset,
+      createdAt: startedAt,
+    });
 
   const runIds = prepared.map(() => `run-${randomUUID()}`);
 
@@ -402,21 +458,23 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     });
   });
 
-  if (assistantMessages.length > 0) {
-    await conversationRepository.mutate(profileId, conversationId, (current) => ({
-      ...current,
-      messages: [...current.messages, ...assistantMessages],
-      worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
-    }));
-  } else {
-    await conversationRepository.mutate(profileId, conversationId, (current) => ({
-      ...current,
-      worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
-    }));
-  }
+  if (!clientPersist) {
+    if (assistantMessages.length > 0) {
+      await conversationRepository.mutate(profileId, conversationId, (current) => ({
+        ...current,
+        messages: [...current.messages, ...assistantMessages],
+        worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
+      }));
+    } else {
+      await conversationRepository.mutate(profileId, conversationId, (current) => ({
+        ...current,
+        worldviewScheduleState: sharedTurn.worldviewScheduleStateCommit,
+      }));
+    }
 
-  await runRepository.appendMany(runs, settings.logging.maxRuns);
-  await memoryRepository.markUsed(profileId, [...usedMemoryIds]);
+    await runRepository.appendMany(runs, settings.logging.maxRuns);
+    await memoryRepository.markUsed(profileId, [...usedMemoryIds]);
+  }
 
   const memoryExtraction = await runMemoryExtraction({
     profileId,
@@ -425,7 +483,26 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     userMessage,
     priorMessages: conversation.messages,
     settings,
+    clientPersist,
+    forceAutoMemoryWrite: Boolean(input.forceAutoMemoryWrite),
   });
+
+  if (input.actor) {
+    const { appendUsageLog } = await import("../auth/usage-log");
+    for (const candidate of candidates) {
+      await appendUsageLog({
+        userId: input.actor.userId,
+        role: input.actor.role,
+        event: "compare_slot",
+        provider: candidate.provider,
+        modelId: candidate.modelId,
+        ok: candidate.status === "succeeded",
+        latencyMs: candidate.latencyMs,
+        promptTokens: candidate.usage.inputTokens,
+        completionTokens: candidate.usage.outputTokens,
+      });
+    }
+  }
 
   return {
     comparisonGroupId,
@@ -433,6 +510,7 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
     userMessageId,
     candidates,
     memoryExtraction,
+    configHash: sharedTurn.behaviorTrace.behaviorConfigHash,
   };
 }
 
@@ -441,13 +519,15 @@ export async function runCompare(input: CompareInput): Promise<CompareResult> {
  * 抽取对象仍是用户原话；本轮开口之前的对话只用于解开指代。
  * 失败只显示“调用失败”，不影响各模型容器结果。
  */
-async function runMemoryExtraction(input: {
+export async function runMemoryExtraction(input: {
   profileId: string;
   conversationId: string;
   userMessageId: string;
   userMessage: string;
   priorMessages: ConversationMessage[];
   settings: SettingsData;
+  clientPersist?: boolean;
+  forceAutoMemoryWrite?: boolean;
 }): Promise<CompareResult["memoryExtraction"]> {
   const { settings } = input;
   if (!settings.memory.autoCandidateExtraction.enabled) {
@@ -456,7 +536,7 @@ async function runMemoryExtraction(input: {
 
   try {
     const provider = settings.memory.autoCandidateExtraction.provider;
-    const candidates: MemoryItem[] = await extractMemoryCandidates({
+    let candidates: MemoryItem[] = await extractMemoryCandidates({
       profileId: input.profileId,
       conversationId: input.conversationId,
       userTexts: [
@@ -469,11 +549,25 @@ async function runMemoryExtraction(input: {
       memorySettings: settings.memory,
       timeoutMs: settings.providers[provider].transport.timeoutMs,
     });
-    await memoryRepository.createMany(candidates);
+
+    if (input.forceAutoMemoryWrite) {
+      const now = new Date().toISOString();
+      candidates = candidates.map((item) => ({
+        ...item,
+        status: "active" as const,
+        updatedAt: now,
+      }));
+    }
+
+    if (!input.clientPersist) {
+      await memoryRepository.createMany(candidates);
+    }
+
     return {
       status: "succeeded",
       candidateIds: candidates.map((candidate) => candidate.id),
       displayText: "",
+      ...(input.clientPersist ? { candidates } : {}),
     };
   } catch {
     return { status: "failed", candidateIds: [], displayText: CALL_FAILED_TEXT };

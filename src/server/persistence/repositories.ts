@@ -403,6 +403,20 @@ export const memoryRepository = {
     });
   },
 
+  /** 删除某配置槽下全部记忆（含候选）。 */
+  async removeAll(profileId: string): Promise<{ deletedCount: number }> {
+    return memoriesStore.update((current) => {
+      const remaining = current.items.filter(
+        (item) => item.profileId !== profileId,
+      );
+      const deletedCount = current.items.length - remaining.length;
+      return {
+        next: { items: remaining },
+        result: { deletedCount },
+      };
+    });
+  },
+
   /** 只有成功 run 才调用，用于更新使用统计。 */
   async markUsed(profileId: string, memoryIds: string[]): Promise<void> {
     if (memoryIds.length === 0) return;
@@ -499,6 +513,20 @@ export const conversationRepository = {
           ),
         },
         result: null,
+      };
+    });
+  },
+
+  /** 删除某配置槽下全部对话；不级联删除 runs。 */
+  async removeAll(profileId: string): Promise<{ deletedCount: number }> {
+    return conversationsStore.update((current) => {
+      const remaining = current.items.filter(
+        (item) => item.profileId !== profileId,
+      );
+      const deletedCount = current.items.length - remaining.length;
+      return {
+        next: { items: remaining },
+        result: { deletedCount },
       };
     });
   },

@@ -30,6 +30,7 @@ export function enrichTurnPlanWithWorldview(
   plan: TurnPlan,
   config: BehaviorConfigV2,
   _userMessage?: string,
+  options?: { recentMotifs?: string[] },
 ): TurnPlan {
   const mode = plan.worldview.mode;
   if (mode === "W0" || mode === "pending") return plan;
@@ -42,16 +43,23 @@ export function enrichTurnPlanWithWorldview(
     ...plan.mustAvoid,
   ];
 
+  const motifs = (options?.recentMotifs ?? []).filter(Boolean);
+  if (motifs.length > 0) {
+    mustAvoid.push(
+      `不要复用近轮已用过的意象词：${motifs.join("、")}；换物件或动作`,
+    );
+  }
+
   if (mode === "W1" && seed) {
     mustDo.push(
-      `用恰好一句改写自种子「${seed.title}」的画面感作陪衬，不可省略`,
+      `用恰好一句改写自种子「${seed.title}」的画面感作陪衬（借态度与一个物件，勿整句照抄）`,
       "这一句要有 ZHAKA 痕迹（树懒体感/雨林回忆或态度/朋友），用回忆或比喻，不要写成此刻实时现场",
     );
   }
 
   if (mode === "W2" && seed) {
     mustDo.push(
-      `用一小段（不超过全文三分之一）改写自种子「${seed.title}」的平行感受作陪衬`,
+      `用一小段（不超过全文三分之一）改写自种子「${seed.title}」的平行感受作陪衬；换物件与动作，勿复读固定金句`,
       "其余篇幅仍贴着用户；陪衬段用回忆、态度或朋友小事，不要写成正在窗外听雨的风景直播",
     );
   }
@@ -94,15 +102,15 @@ export function renderWorldviewExecutionBlock(
   if (mode === "W1") {
     lines.push(
       "强度：W1（恰好一句 ZHAKA 平行感受，和用户情绪同温）",
-      "好例子：用本轮种子改写一句回忆或态度（物件/动作每轮不同，勿复读固定金句）。",
-      "坏例子：「在亚马逊雨林里下雨前天色会变暗…」（这是介绍环境）；「我正挂在窗边听雨」（虚构实时现场）；也不要反复使用同一句「颜色收走了 / 挂在枝头」。",
-      "硬性要求：除接住用户外，必须有一句带 ZHAKA 痕迹的陪衬，且优先改写本轮种子，不可省略。",
+      "好例子：用本轮种子改写一句回忆或态度（只借一个物件/动作，勿整句照抄，勿复读近轮金句）。",
+      "坏例子：「在亚马逊雨林里下雨前天色会变暗…」（这是介绍环境）；「我正挂在窗边听雨」（虚构实时现场）；也不要反复使用同一句「颜色收走了 / 挂在枝头 / 叶尖还在滴」。",
+      "硬性要求：除接住用户外，必须有一句带 ZHAKA 痕迹的陪衬，优先改写本轮种子的态度与画面，但物件与动作不得与 mustAvoid 冲突。",
     );
   } else if (mode === "W2") {
     lines.push(
       "强度：W2（一小段 ZHAKA 平行感受，不超过全文三分之一；其余仍是陪用户）",
       "好例子：先接用户的烦/空落落 → 再写「以前在林子里也会忽然很吵，不是外面响，是心里硌着」类回忆体感 → 态度收住。",
-      "禁止：连续环境描写、朋友出场秀、风景介绍、假装此刻实时在场。",
+      "禁止：连续环境描写、朋友出场秀、风景介绍、假装此刻实时在场、复读近轮同一意象。",
     );
   } else {
     lines.push("强度：W3（仅因用户明确追问设定）");

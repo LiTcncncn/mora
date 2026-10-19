@@ -8,6 +8,7 @@ import {
   readJsonBody,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin, requireAuth } from "@/server/auth/require-auth";
 import { personaRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -25,6 +26,7 @@ const createSchema = z.object({
 
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAuth();
     const profileId = requireQueryParam(request, "profileId");
     return apiSuccess(await personaRepository.list(profileId));
   });
@@ -32,6 +34,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(createSchema, await readJsonBody(request));
     const timestamp = new Date().toISOString();
     const created = await personaRepository.create({

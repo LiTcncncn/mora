@@ -5,18 +5,9 @@ import { Collapsible, Notice } from "@/components/ui/primitives";
 import { api, errorMessage } from "@/lib/api-client";
 
 /**
- * §13.5 的 Config Transfer 分组：导出、导入、备份恢复的操作入口。
- * 包结构、排除清单与 hash 计算范围为只读，由 §13.6 定义，界面不提供开关。
+ * 配置导出 / 导入 / 备份恢复入口。
+ * 产品面只暴露「完整配置」一种文件；不含 API Key、对话、Memory、runs。
  */
-
-const EXPORT_KINDS = [
-  {
-    kind: "mora_behavior_config",
-    label: "完整配置（v2 行为 + 世界观/示例资产 + Persona/Preset/Settings）",
-  },
-  { kind: "mora_worldview_library", label: "世界观素材库（事实 + 种子）" },
-  { kind: "mora_example_library", label: "行为示例卡库" },
-] as const;
 
 interface AssetDelta {
   added: number;
@@ -73,12 +64,6 @@ const ASSET_LABELS: Record<string, string> = {
   canonFacts: "世界观事实",
   worldviewSeeds: "世界观种子",
   exampleCards: "行为示例卡",
-};
-
-const MIGRATION_SOURCE_LABELS: Record<string, string> = {
-  absent: "源配置不含样本字段，现有语料保持不动",
-  explicit_empty: "源配置显式清空样本",
-  present: "源配置含样本",
 };
 
 export function ConfigTransfer({
@@ -191,28 +176,16 @@ export function ConfigTransfer({
 
         <section className="space-y-2">
           <h4 className="text-sm font-medium">导出</h4>
-          <div className="flex flex-wrap gap-2">
-            {EXPORT_KINDS.map((item) => (
-              <a
-                key={item.kind}
-                className="btn inline-flex"
-                href={`/api/behavior-config/export?profileId=${encodeURIComponent(profileId)}&kind=${item.kind}`}
-                download
-              >
-                {item.label}
-              </a>
-            ))}
-            <a
-              className="btn inline-flex"
-              href={`/api/config/export?profileId=${encodeURIComponent(profileId)}`}
-              download
-            >
-              v1 运行时快照（回滚用）
-            </a>
-          </div>
+          <a
+            className="btn inline-flex"
+            href={`/api/behavior-config/export?profileId=${encodeURIComponent(profileId)}&kind=mora_behavior_config`}
+            download
+          >
+            导出完整配置
+          </a>
           <p className="text-xs text-[var(--color-muted)]">
-            v2 导出文件名含 configHash 前 8 位。v1 快照仅含 Settings / Persona / Preset，
-            供 D41 回滚，不含 v2 行为配置。
+            单个 JSON：行为配置、世界观、示例卡、Persona、Preset、Settings。文件名含
+            configHash 前 8 位。
           </p>
         </section>
 
@@ -222,15 +195,21 @@ export function ConfigTransfer({
             ref={inputRef}
             type="file"
             accept="application/json"
-            className="block text-sm"
+            className="sr-only"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void runPreview(file);
             }}
           />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => inputRef.current?.click()}
+          >
+            选择配置文件
+          </button>
           <p className="text-xs text-[var(--color-muted)]">
-            v1 配置文件可直接导入，系统会先生成迁移预览。导入前必须确认，
-            该确认不可跳过。
+            仅支持本页导出的完整配置。导入前必须确认，该确认不可跳过。
           </p>
 
           {preview ? (
@@ -285,12 +264,27 @@ function ImportPreviewCard({
   onApply: () => void;
   onCancel: () => void;
 }) {
+  const unsupportedLegacy = preview.sourceGeneration === 1;
+  const unsupportedKind = preview.kind !== "mora_behavior_config";
+  const blocked = preview.rejected || unsupportedLegacy || unsupportedKind;
+
   return (
     <div className="card space-y-3 p-3 text-sm">
       <p>
-        来源档案：{preview.sourceProfileName} · 文件版本 v
-        {preview.sourceGeneration} · {preview.kind}
+        来源：{preview.sourceProfileName} · {preview.kind}
       </p>
+
+      {unsupportedLegacy ? (
+        <Notice tone="error">
+          不支持旧版配置快照。请使用本页导出的完整配置后再导入。
+        </Notice>
+      ) : null}
+
+      {unsupportedKind ? (
+        <Notice tone="error">
+          仅支持完整配置文件。请使用「导出完整配置」生成的 JSON。
+        </Notice>
+      ) : null}
 
       {preview.rejected ? (
         <Notice tone="error">
@@ -376,31 +370,8 @@ function ImportPreviewCard({
         <Notice>
           同时导入 Lab 运行时：{preview.labRuntimeSummary.personaCount} 条
           Persona、{preview.labRuntimeSummary.promptPresetCount} 条 Prompt
-          Preset，以及 Settings（会覆盖当前档案的槽位与 Context 等设置）。
+          Preset，以及 Settings（会覆盖当前槽位与 Context 等设置）。
         </Notice>
-      ) : null}
-
-      {preview.migration ? (
-        <div>
-          <p className="font-medium">迁移报告</p>
-          <p className="text-[var(--color-muted)]">
-            旧版 few-shot 样本：
-            {MIGRATION_SOURCE_LABELS[preview.migration.fewShotSource]}
-            （{preview.migration.fewShotSampleCount} 条），生成{" "}
-            {preview.migration.exampleCardCandidates} 张待审核示例卡。
-          </p>
-          {preview.migration.seedCandidatesPending.length > 0 ? (
-            <p className="text-[var(--color-muted)]">
-              {preview.migration.seedCandidatesPending.length}{" "}
-              条样本含显性世界观，需人工另写世界观种子。
-            </p>
-          ) : null}
-          <ul className="list-disc pl-4 text-[var(--color-muted)]">
-            {preview.migration.notes.map((note, index) => (
-              <li key={index}>{note}</li>
-            ))}
-          </ul>
-        </div>
       ) : null}
 
       {preview.warnings.length > 0 ? (
@@ -415,7 +386,7 @@ function ImportPreviewCard({
       ) : null}
 
       <div className="flex gap-2">
-        {preview.rejected ? null : (
+        {blocked ? null : (
           <button type="button" className="btn btn-primary" onClick={onApply}>
             确认导入
           </button>

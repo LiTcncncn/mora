@@ -7,6 +7,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(bodySchema, await readJsonBody(request));
     return apiSuccess(await diagnoseProvider(body.provider, body.modelId));
   });

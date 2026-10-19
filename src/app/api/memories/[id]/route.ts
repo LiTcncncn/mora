@@ -7,6 +7,7 @@ import {
   readJsonBody,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { memoryRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -21,6 +22,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function PUT(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const body = parseWith(updateSchema, await readJsonBody(request));
     const updated = await memoryRepository.update(
@@ -37,6 +39,7 @@ export async function DELETE(
   context: Params,
 ): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     await memoryRepository.remove(profileId, id);

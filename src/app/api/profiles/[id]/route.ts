@@ -1,11 +1,11 @@
 import { z } from "zod";
 import {
-  apiSuccess,
   handleRoute,
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
-import { profileRepository } from "@/server/persistence/repositories";
+import { AppError } from "@/server/api/errors";
+import { requireAdmin } from "@/server/auth/require-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,28 +17,26 @@ const updateSchema = z.object({
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function PUT(request: Request, context: Params): Promise<Response> {
+export async function PUT(request: Request, _context: Params): Promise<Response> {
   return handleRoute(async () => {
-    const { id } = await context.params;
-    const body = parseWith(updateSchema, await readJsonBody(request));
-
-    if (body.name !== undefined) {
-      await profileRepository.rename(id, body.name);
-    }
-    if (body.setActive) {
-      await profileRepository.setActive(id);
-    }
-    return apiSuccess(await profileRepository.list());
+    await requireAdmin();
+    parseWith(updateSchema, await readJsonBody(request));
+    throw new AppError(
+      "FORBIDDEN",
+      "已取消本地测试档案：服务器只保留一份生效配置",
+    );
   });
 }
 
 export async function DELETE(
   _request: Request,
-  context: Params,
+  _context: Params,
 ): Promise<Response> {
   return handleRoute(async () => {
-    const { id } = await context.params;
-    await profileRepository.remove(id);
-    return apiSuccess(await profileRepository.list());
+    await requireAdmin();
+    throw new AppError(
+      "FORBIDDEN",
+      "已取消本地测试档案：服务器只保留一份生效配置",
+    );
   });
 }

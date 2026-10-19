@@ -7,6 +7,7 @@ import {
   readJsonBody,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin, requireAuth } from "@/server/auth/require-auth";
 import { personaRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -21,6 +22,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAuth();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     return apiSuccess(await personaRepository.get(profileId, id));
@@ -29,6 +31,7 @@ export async function GET(request: Request, context: Params): Promise<Response> 
 
 export async function PUT(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const body = parseWith(updateSchema, await readJsonBody(request));
     const updated = await personaRepository.update(
@@ -45,6 +48,7 @@ export async function DELETE(
   context: Params,
 ): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     await personaRepository.remove(profileId, id);

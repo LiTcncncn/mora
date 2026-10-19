@@ -1,5 +1,6 @@
 import "server-only";
 import type { FinishReason } from "@/domain/common";
+import type { AppliedParameter } from "@/domain/run";
 import { AppError } from "../api/errors";
 import { getKimiApiKey, getKimiBaseUrl } from "../config/env";
 import {
@@ -8,6 +9,7 @@ import {
   withRetries,
 } from "./provider-error";
 import { fetchWithConnectTimeout } from "./timed-fetch";
+import { streamChatCompletions } from "./openai-stream";
 import {
   buildAppliedParameters,
   transformed,
@@ -129,6 +131,57 @@ async function callKimi(
   return parsed;
 }
 
+function buildRequestBody(request: UnifiedModelRequest): {
+  body: Record<string, unknown>;
+  trace: AppliedParameter[];
+} {
+  const { applied, trace } = buildAppliedParameters(
+    request.generation,
+    capabilitiesFor(request.modelId),
+  );
+
+  if (isK2Family(request.modelId)) {
+    applied.temperature = K2_FIXED_TEMPERATURE;
+    const record = transformed(
+      "temperature",
+      request.generation.temperature,
+      K2_FIXED_TEMPERATURE,
+      "kimi-k2 系列只允许 temperature=0.6",
+    );
+    const existing = trace.findIndex((item) => item.name === "temperature");
+    if (existing >= 0) trace[existing] = record;
+    else trace.push(record);
+  }
+
+  return {
+    trace,
+    body: {
+      model: request.modelId,
+      messages: [
+        { role: "system", content: request.instructions },
+        { role: "user", content: request.input },
+      ],
+      max_tokens: request.generation.maxOutputTokens,
+      ...(applied.temperature !== undefined
+        ? { temperature: applied.temperature }
+        : {}),
+      ...(applied.topP !== undefined ? { top_p: applied.topP } : {}),
+      ...(applied.presencePenalty !== undefined
+        ? { presence_penalty: applied.presencePenalty }
+        : {}),
+      ...(applied.frequencyPenalty !== undefined
+        ? { frequency_penalty: applied.frequencyPenalty }
+        : {}),
+      ...(applied.thinkingMode !== undefined
+        ? { thinking: { type: applied.thinkingMode } }
+        : {}),
+      ...(applied.reasoningEffort !== undefined
+        ? { reasoning_effort: applied.reasoningEffort }
+        : {}),
+    },
+  };
+}
+
 export const kimiAdapter: ModelAdapter = {
   id: "kimi",
 
@@ -137,57 +190,11 @@ export const kimiAdapter: ModelAdapter = {
   },
 
   async complete(request: UnifiedModelRequest): Promise<UnifiedModelResult> {
-    const capabilities = capabilitiesFor(request.modelId);
-    const { applied, trace } = buildAppliedParameters(
-      request.generation,
-      capabilities,
-    );
-
-    const k2 = isK2Family(request.modelId);
-    if (k2) {
-      applied.temperature = K2_FIXED_TEMPERATURE;
-      const record = transformed(
-        "temperature",
-        request.generation.temperature,
-        K2_FIXED_TEMPERATURE,
-        "kimi-k2 系列只允许 temperature=0.6",
-      );
-      const existing = trace.findIndex((item) => item.name === "temperature");
-      if (existing >= 0) trace[existing] = record;
-      else trace.push(record);
-    }
-
+    const { body, trace } = buildRequestBody(request);
     const startedAt = Date.now();
 
     const result = await withRetries(request.maxRetries, () =>
-      callKimi(
-        {
-          model: request.modelId,
-          messages: [
-            { role: "system", content: request.instructions },
-            { role: "user", content: request.input },
-          ],
-          stream: false,
-          max_tokens: request.generation.maxOutputTokens,
-          ...(applied.temperature !== undefined
-            ? { temperature: applied.temperature }
-            : {}),
-          ...(applied.topP !== undefined ? { top_p: applied.topP } : {}),
-          ...(applied.presencePenalty !== undefined
-            ? { presence_penalty: applied.presencePenalty }
-            : {}),
-          ...(applied.frequencyPenalty !== undefined
-            ? { frequency_penalty: applied.frequencyPenalty }
-            : {}),
-          ...(applied.thinkingMode !== undefined
-            ? { thinking: { type: applied.thinkingMode } }
-            : {}),
-          ...(applied.reasoningEffort !== undefined
-            ? { reasoning_effort: applied.reasoningEffort }
-            : {}),
-        },
-        request.timeoutMs,
-      ),
+      callKimi({ ...body, stream: false }, request.timeoutMs),
     );
 
     const latencyMs = Date.now() - startedAt;
@@ -216,6 +223,23 @@ export const kimiAdapter: ModelAdapter = {
       appliedParameters: trace,
       finishReason: mapFinishReason(choice?.finish_reason),
     };
+  },
+
+  async *stream(request: UnifiedModelRequest, signal?: AbortSignal) {
+    const { body, trace } = buildRequestBody(request);
+    yield* streamChatCompletions({
+      provider: "kimi",
+      label: "Kimi",
+      url: `${getKimiBaseUrl().replace(/\/$/, "")}/chat/completions`,
+      apiKey: requireApiKey(),
+      body,
+      modelId: request.modelId,
+      timeoutMs: request.timeoutMs,
+      maxRetries: request.maxRetries,
+      appliedParameters: trace,
+      mapFinishReason,
+      signal,
+    });
   },
 
   async testConnection(modelId: string) {

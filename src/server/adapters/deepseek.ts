@@ -1,5 +1,6 @@
 import "server-only";
 import type { FinishReason } from "@/domain/common";
+import type { AppliedParameter } from "@/domain/run";
 import { AppError } from "../api/errors";
 import { getDeepSeekApiKey, getDeepSeekBaseUrl } from "../config/env";
 import {
@@ -7,6 +8,7 @@ import {
   ProviderTimeoutError,
   withRetries,
 } from "./provider-error";
+import { streamChatCompletions } from "./openai-stream";
 import {
   buildAppliedParameters,
   UNAVAILABLE_USAGE,
@@ -120,6 +122,43 @@ async function callDeepSeek(
   }
 }
 
+function buildRequestBody(request: UnifiedModelRequest): {
+  body: Record<string, unknown>;
+  trace: AppliedParameter[];
+} {
+  const { applied, trace } = buildAppliedParameters(
+    request.generation,
+    capabilitiesFor(request.modelId),
+  );
+  return {
+    trace,
+    body: {
+      model: request.modelId,
+      messages: [
+        { role: "system", content: request.instructions },
+        { role: "user", content: request.input },
+      ],
+      max_tokens: request.generation.maxOutputTokens,
+      ...(applied.temperature !== undefined
+        ? { temperature: applied.temperature }
+        : {}),
+      ...(applied.topP !== undefined ? { top_p: applied.topP } : {}),
+      ...(applied.presencePenalty !== undefined
+        ? { presence_penalty: applied.presencePenalty }
+        : {}),
+      ...(applied.frequencyPenalty !== undefined
+        ? { frequency_penalty: applied.frequencyPenalty }
+        : {}),
+      ...(applied.thinkingMode !== undefined
+        ? { thinking: { type: applied.thinkingMode } }
+        : {}),
+      ...(applied.reasoningEffort !== undefined
+        ? { reasoning_effort: applied.reasoningEffort }
+        : {}),
+    },
+  };
+}
+
 export const deepSeekAdapter: ModelAdapter = {
   id: "deepseek",
 
@@ -128,43 +167,11 @@ export const deepSeekAdapter: ModelAdapter = {
   },
 
   async complete(request: UnifiedModelRequest): Promise<UnifiedModelResult> {
-    const capabilities = capabilitiesFor(request.modelId);
-    const { applied, trace } = buildAppliedParameters(
-      request.generation,
-      capabilities,
-    );
-
+    const { body, trace } = buildRequestBody(request);
     const startedAt = Date.now();
 
     const result = await withRetries(request.maxRetries, () =>
-      callDeepSeek(
-        {
-          model: request.modelId,
-          messages: [
-            { role: "system", content: request.instructions },
-            { role: "user", content: request.input },
-          ],
-          stream: false,
-          max_tokens: request.generation.maxOutputTokens,
-          ...(applied.temperature !== undefined
-            ? { temperature: applied.temperature }
-            : {}),
-          ...(applied.topP !== undefined ? { top_p: applied.topP } : {}),
-          ...(applied.presencePenalty !== undefined
-            ? { presence_penalty: applied.presencePenalty }
-            : {}),
-          ...(applied.frequencyPenalty !== undefined
-            ? { frequency_penalty: applied.frequencyPenalty }
-            : {}),
-          ...(applied.thinkingMode !== undefined
-            ? { thinking: { type: applied.thinkingMode } }
-            : {}),
-          ...(applied.reasoningEffort !== undefined
-            ? { reasoning_effort: applied.reasoningEffort }
-            : {}),
-        },
-        request.timeoutMs,
-      ),
+      callDeepSeek({ ...body, stream: false }, request.timeoutMs),
     );
 
     const latencyMs = Date.now() - startedAt;
@@ -195,6 +202,23 @@ export const deepSeekAdapter: ModelAdapter = {
       appliedParameters: trace,
       finishReason: mapFinishReason(choice?.finish_reason),
     };
+  },
+
+  async *stream(request: UnifiedModelRequest, signal?: AbortSignal) {
+    const { body, trace } = buildRequestBody(request);
+    yield* streamChatCompletions({
+      provider: "deepseek",
+      label: "DeepSeek",
+      url: `${getDeepSeekBaseUrl()}/chat/completions`,
+      apiKey: requireApiKey(),
+      body,
+      modelId: request.modelId,
+      timeoutMs: request.timeoutMs,
+      maxRetries: request.maxRetries,
+      appliedParameters: trace,
+      mapFinishReason,
+      signal,
+    });
   },
 
   async testConnection(modelId: string) {

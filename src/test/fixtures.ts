@@ -95,6 +95,10 @@ export function makeMemory(overrides: Partial<MemoryItem> = {}): MemoryItem {
     lastUsedAt: null,
     useCount: 0,
     expiresAt: null,
+    occurredOn: null,
+    occurredEndOn: null,
+    occurredPrecision: "unknown",
+    timeSource: "none",
     ...overrides,
   };
 }

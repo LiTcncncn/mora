@@ -1,5 +1,10 @@
 import type { MemoryItem, MemorySelectionTrace } from "@/domain/memory";
 import type { MemorySettings } from "@/domain/settings";
+import {
+  memoryOverlapsTimeWindow,
+  parseRelativeTimeWindow,
+  type MemoryTimeWindow,
+} from "./time-window";
 
 const STOP_WORDS = new Set([
   "的",
@@ -73,6 +78,8 @@ function recencyScore(memory: MemoryItem, now: number): number {
 export interface MemorySelectionResult {
   selected: MemoryItem[];
   trace: MemorySelectionTrace[];
+  /** 用户话里解析出的回顾时间窗；null 表示未触发日历硬过滤。 */
+  timeWindow: MemoryTimeWindow | null;
 }
 
 export function selectMemories(input: {
@@ -82,11 +89,14 @@ export function selectMemories(input: {
   now?: Date;
 }): MemorySelectionResult {
   const { memories, userMessage, settings } = input;
-  const now = (input.now ?? new Date()).getTime();
+  const nowDate = input.now ?? new Date();
+  const now = nowDate.getTime();
+  const timeWindow = parseRelativeTimeWindow(userMessage, nowDate);
 
   if (!settings.enabled) {
     return {
       selected: [],
+      timeWindow,
       trace: memories.map((memory) => ({
         memoryId: memory.id,
         selected: false,
@@ -135,6 +145,18 @@ export function selectMemories(input: {
     else if (!typeIncluded) ineligibleReason = `类型 ${memory.type} 未包含在设置中`;
     else if (belowImportance)
       ineligibleReason = `重要度 ${memory.importance} 低于阈值 ${settings.minImportance}`;
+    else if (
+      timeWindow &&
+      !memoryOverlapsTimeWindow(
+        memory.occurredOn,
+        memory.occurredEndOn,
+        timeWindow,
+      )
+    ) {
+      ineligibleReason = memory.occurredOn
+        ? `事发日 ${memory.occurredOn} 不在「${timeWindow.label}」(${timeWindow.startOn}～${timeWindow.endOn})`
+        : `无事发日锚定，无法匹配「${timeWindow.label}」回顾`;
+    }
 
     return {
       memory,
@@ -175,9 +197,12 @@ export function selectMemories(input: {
     }
     usedChars += length;
     selected.push(entry.memory);
+    const windowNote = timeWindow
+      ? `；日历「${timeWindow.label}」`
+      : "";
     selectionReason.set(
       entry.memory.id,
-      `入选，综合得分 ${entry.scores.total.toFixed(3)}`,
+      `入选，综合得分 ${entry.scores.total.toFixed(3)}${windowNote}`,
     );
   }
 
@@ -198,5 +223,5 @@ export function selectMemories(input: {
     return a.memoryId.localeCompare(b.memoryId);
   });
 
-  return { selected, trace };
+  return { selected, trace, timeWindow };
 }

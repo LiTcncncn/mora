@@ -2,6 +2,8 @@ export const ERROR_CODES = [
   "VALIDATION_ERROR",
   "NOT_FOUND",
   "CONFLICT",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
   "PROVIDER_NOT_CONFIGURED",
   "PROVIDER_AUTH_ERROR",
   "PROVIDER_RATE_LIMITED",
@@ -48,6 +50,10 @@ export function defaultStatusForCode(code: ErrorCode): number {
   switch (code) {
     case "VALIDATION_ERROR":
       return 400;
+    case "UNAUTHORIZED":
+      return 401;
+    case "FORBIDDEN":
+      return 403;
     case "NOT_FOUND":
       return 404;
     case "CONFLICT":
@@ -92,6 +98,8 @@ export const ERROR_MESSAGES_ZH: Record<ErrorCode, string> = {
   VALIDATION_ERROR: "请求参数不合法",
   NOT_FOUND: "找不到对应数据",
   CONFLICT: "当前状态无法完成该操作",
+  UNAUTHORIZED: "请先登录",
+  FORBIDDEN: "没有权限执行该操作",
   PROVIDER_NOT_CONFIGURED: "该供应商尚未配置 API Key",
   PROVIDER_AUTH_ERROR: "供应商认证失败",
   PROVIDER_RATE_LIMITED: "供应商限流",

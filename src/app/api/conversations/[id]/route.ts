@@ -6,6 +6,7 @@ import {
   readJsonBody,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { conversationRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     return apiSuccess(await conversationRepository.get(profileId, id));
@@ -28,6 +30,7 @@ export async function GET(request: Request, context: Params): Promise<Response> 
 
 export async function PUT(request: Request, context: Params): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const body = parseWith(updateSchema, await readJsonBody(request));
     const updated = await conversationRepository.rename(
@@ -44,6 +47,7 @@ export async function DELETE(
   context: Params,
 ): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const { id } = await context.params;
     const profileId = requireQueryParam(request, "profileId");
     // 不级联删除 runs：runs 保留快照，Inspector 中显示原对话已删除。

@@ -27,7 +27,8 @@ import {
 import {
   filterSeedsStage1,
   filterSeedsStage2,
-  pickBestSeed,
+  pickSeedForTurn,
+  recentMotifHints,
 } from "./seed-filter";
 
 export interface FinalizeBehaviorTurnResult {
@@ -213,10 +214,13 @@ export function finalizeBehaviorTurn(input: {
           notes: ["调度命中但第二段过滤为空，按未命中提交"],
         };
       } else {
-        const picked = pickBestSeed(stage2, {
+        const picked = pickSeedForTurn(stage2, {
           userMessage,
           responseMode: basePlan.responseMode,
           energy: basePlan.energy,
+          settings: config.worldview,
+          scheduleSeed: preState.scheduleSeed,
+          eligibleIndex: preState.eligibleIndex,
         });
         const seed = picked.seed;
         if (!seed) {
@@ -283,6 +287,10 @@ export function finalizeBehaviorTurn(input: {
             cooldownGroup: seed.cooldownGroup,
             assistantTurnIndex,
           });
+          const topNote =
+            picked.candidateIds.length > 1
+              ? `；候选 ${picked.candidateIds.join(",")}`
+              : "";
           worldviewTrace = {
             ...worldviewTrace,
             finalMode: mode,
@@ -292,7 +300,9 @@ export function finalizeBehaviorTurn(input: {
             canonFactIds: seed.canonFactIds,
             worldviewInjected: true,
             creditAfter: scheduleState.credit,
-            notes: [`选中种子 ${seed.title}（匹配 ${picked.topScore.toFixed(2)}）`],
+            notes: [
+              `选中种子 ${seed.title}（匹配 ${picked.topScore.toFixed(2)}${topNote}）`,
+            ],
           };
         }
         }
@@ -363,7 +373,15 @@ export function finalizeBehaviorTurn(input: {
     selectedExampleId: example.exampleId,
   };
 
-  turnPlan = enrichTurnPlanWithWorldview(turnPlan, config, userMessage);
+  turnPlan = enrichTurnPlanWithWorldview(turnPlan, config, userMessage, {
+    recentMotifs: recentMotifHints(
+      config.worldviewSeeds,
+      scheduleState,
+      assistantTurnIndex,
+      Math.max(config.worldview.seedGroupCooldownTurns, 8),
+      turnPlan.worldview.seedId,
+    ),
+  });
 
   return {
     turnPlan,

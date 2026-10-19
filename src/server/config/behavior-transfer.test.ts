@@ -224,8 +224,9 @@ describe("configHash", () => {
   it("固定输入产出固定 hash", () => {
     // 写死期望值以防实现漂移（与 §9.5.4 的 FNV-1a 同样处理）。
     // 改动 §13.6.3 的计算方式时，这条断言必须连同理由一起更新。
-    // questionPolicy 默认 probabilistic；hash 随 schema 变更更新。
-    expect(computeConfigHash(baseConfig())).toBe("51f530418c74e5a7");
+    // questionPolicy 默认 probabilistic；worldview 含组冷却与选种抖动字段。
+    // hash 随 schema 变更更新。
+    expect(computeConfigHash(baseConfig())).toBe("ac27a476da81e910");
   });
 
   it("hash 长度固定为 16 个十六进制字符", () => {

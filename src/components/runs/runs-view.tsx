@@ -48,7 +48,7 @@ export function RunsView() {
     void load();
   }, [load]);
 
-  if (!activeProfileId) return <p className="text-sm">正在加载档案…</p>;
+  if (!activeProfileId) return <p className="text-sm">正在加载配置…</p>;
 
   const succeeded = runs.filter((run) => run.status === "succeeded").length;
 
@@ -88,7 +88,7 @@ export function RunsView() {
       </div>
 
       {runs.length === 0 ? (
-        <EmptyState>这个档案还没有运行记录。</EmptyState>
+        <EmptyState>还没有运行记录。</EmptyState>
       ) : (
         <div className="space-y-2">
           {runs.map((run) => (

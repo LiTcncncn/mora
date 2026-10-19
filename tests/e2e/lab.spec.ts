@@ -2,6 +2,16 @@ import { expect, test, type Page } from "@playwright/test";
 
 const FAILED_TEXT = "调用失败";
 
+async function loginAsAdmin(page: Page): Promise<void> {
+  await page.goto("/login");
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("a9k2m4");
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
 /** 拦截 compare 请求，模拟一个成功槽位与一个失败槽位，不消耗真实 API。 */
 async function mockCompare(page: Page): Promise<void> {
   await page.route("**/api/compare", async (route) => {
@@ -29,12 +39,10 @@ async function mockCompare(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+  await loginAsAdmin(page);
 });
 
-test("总览页展示当前档案与启用槽位", async ({ page }) => {
-  await expect(page.getByText("当前档案", { exact: true })).toBeVisible();
+test("总览页展示启用槽位", async ({ page }) => {
   await expect(page.getByText("启用模型槽位")).toBeVisible();
   await expect(page.getByText("Kimi：已配置")).toBeVisible();
 });
@@ -73,22 +81,11 @@ test("修改设置后刷新仍然保留", async ({ page }) => {
   ).toHaveValue("4");
 });
 
-test("新建测试档案后数据相互隔离", async ({ page }) => {
+test("设置页不再提供本地测试档案", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "本地测试档案" }).click();
-
-  const name = `档案 ${Date.now()}`;
-  await page.getByPlaceholder("新档案名称").fill(name);
-  await page.getByRole("button", { name: "新建档案" }).click();
-
-  const row = page.locator("li").filter({ hasText: name });
-  await expect(row).toBeVisible();
-
-  await row.getByRole("button", { name: "切换" }).click();
-  await expect(row).toContainText("当前");
-
-  await page.goto("/memory");
-  await expect(page.getByText("这个档案还没有已确认的记忆")).toBeVisible();
+  await expect(page.getByRole("button", { name: "配置导出与导入" })).toBeVisible();
+  await expect(page.getByText("本地测试档案")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "新建档案" })).toHaveCount(0);
 });
 
 test("失败槽位只显示调用失败，不展示任何保底文本", async ({ page }) => {
@@ -96,7 +93,7 @@ test("失败槽位只显示调用失败，不展示任何保底文本", async ({
   await page.goto("/compare");
 
   await page.getByRole("button", { name: "新建对话" }).click();
-  const input = page.getByPlaceholder("写一句话");
+  const input = page.getByPlaceholder(/写一句话/);
   await input.fill("今天好累");
 
   await page.route("**/api/conversations/*", async (route) => {
@@ -287,7 +284,7 @@ test("移动端与桌面端布局都可用", async ({ page }, testInfo) => {
   await page.goto("/compare");
   await page.getByRole("button", { name: "新建对话" }).click();
 
-  const input = page.getByPlaceholder("写一句话");
+  const input = page.getByPlaceholder(/写一句话/);
   await expect(input).toBeVisible();
 
   const box = await input.boundingBox();

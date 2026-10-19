@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-16T00:00:00.000Z",
+  "data": {
+    "config": {
+      "personaId": null,
+      "modelSlotId": null,
+      "voiceId": "Chinese (Mandarin)_ExplorativeGirl",
+      "volume": 69
+    },
+    "items": []
+  }
+}

@@ -6,6 +6,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import {
   extractMemoryCandidates,
   priorContextBeforeUserMessage,
@@ -28,6 +29,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(bodySchema, await readJsonBody(request));
     const [conversation, settings] = await Promise.all([
       conversationRepository.get(body.profileId, body.conversationId),

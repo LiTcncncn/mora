@@ -27,6 +27,11 @@ export function MemoryView() {
   const [query, setQuery] = useState("");
   const [previewInput, setPreviewInput] = useState("");
   const [preview, setPreview] = useState<MemorySelectionTrace[] | null>(null);
+  const [previewWindow, setPreviewWindow] = useState<{
+    startOn: string;
+    endOn: string;
+    label: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!activeProfileId) return;
@@ -44,6 +49,7 @@ export function MemoryView() {
 
   useEffect(() => {
     setPreview(null);
+    setPreviewWindow(null);
     void load();
   }, [load]);
 
@@ -72,6 +78,20 @@ export function MemoryView() {
     }
   };
 
+  const removeAll = async (): Promise<void> => {
+    if (!activeProfileId) return;
+    try {
+      await api.delete(
+        `/api/memories?profileId=${encodeURIComponent(activeProfileId)}`,
+      );
+      setPreview(null);
+      setPreviewWindow(null);
+      await load();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  };
+
   const create = async (): Promise<void> => {
     if (!activeProfileId) return;
     try {
@@ -87,6 +107,10 @@ export function MemoryView() {
           source: { kind: "manual" as const },
           status: "active" as const,
           expiresAt: null,
+          occurredOn: null,
+          occurredEndOn: null,
+          occurredPrecision: "unknown" as const,
+          timeSource: "manual" as const,
         },
       });
       await load();
@@ -98,17 +122,21 @@ export function MemoryView() {
   const runPreview = async (): Promise<void> => {
     if (!activeProfileId || !previewInput.trim()) return;
     try {
-      const result = await api.post<{ trace: MemorySelectionTrace[] }>(
-        "/api/memories/preview-selection",
-        { profileId: activeProfileId, userMessage: previewInput },
-      );
+      const result = await api.post<{
+        trace: MemorySelectionTrace[];
+        timeWindow: { startOn: string; endOn: string; label: string } | null;
+      }>("/api/memories/preview-selection", {
+        profileId: activeProfileId,
+        userMessage: previewInput,
+      });
       setPreview(result.trace);
+      setPreviewWindow(result.timeWindow);
     } catch (caught) {
       setError(errorMessage(caught));
     }
   };
 
-  if (!activeProfileId) return <p className="text-sm">正在加载档案…</p>;
+  if (!activeProfileId) return <p className="text-sm">正在加载配置…</p>;
 
   const candidates = items.filter((item) => item.status === "candidate");
   const actives = items.filter((item) => item.status !== "candidate");
@@ -191,20 +219,32 @@ export function MemoryView() {
           </button>
 
           {preview ? (
-            preview.length === 0 ? (
-              <p className="text-sm text-[var(--color-muted)]">
-                没有可用的 Memory 记忆。
-              </p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {preview.map((trace) => (
-                  <li key={trace.memoryId}>
-                    {trace.selected ? "入选" : "未入选"} · 总分{" "}
-                    {trace.scores.total.toFixed(3)} · {trace.reason}
-                  </li>
-                ))}
-              </ul>
-            )
+            <>
+              {previewWindow ? (
+                <Notice>
+                  已识别时间窗「{previewWindow.label}」：{previewWindow.startOn}～
+                  {previewWindow.endOn}（仅事发日落在此区间的记忆可入选）
+                </Notice>
+              ) : (
+                <p className="text-xs text-[var(--color-muted)]">
+                  未识别相对时间窗，按普通关键词与重要度选择。
+                </p>
+              )}
+              {preview.length === 0 ? (
+                <p className="text-sm text-[var(--color-muted)]">
+                  没有可用的 Memory 记忆。
+                </p>
+              ) : (
+                <ul className="space-y-1 text-sm">
+                  {preview.map((trace) => (
+                    <li key={trace.memoryId}>
+                      {trace.selected ? "入选" : "未入选"} · 总分{" "}
+                      {trace.scores.total.toFixed(3)} · {trace.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : null}
         </div>
       </Collapsible>
@@ -219,10 +259,16 @@ export function MemoryView() {
         <button type="button" className="btn" onClick={() => void create()}>
           新建记忆
         </button>
+        <ConfirmButton
+          label="删除所有记忆"
+          confirmLabel="确认全部删除"
+          disabled={items.length === 0}
+          onConfirm={() => void removeAll()}
+        />
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState>这个档案还没有已确认的记忆。</EmptyState>
+        <EmptyState>还没有已确认的记忆。</EmptyState>
       ) : (
         <ul className="space-y-3">
           {filtered.map((item) => (
@@ -312,11 +358,89 @@ export function MemoryView() {
                     }
                   />
                 </Field>
+                <Field label="事发日">
+                  <input
+                    type="date"
+                    className="field"
+                    value={item.occurredOn ?? ""}
+                    onChange={(event) =>
+                      setItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                occurredOn: event.target.value || null,
+                                occurredPrecision: event.target.value
+                                  ? entry.occurredPrecision === "unknown"
+                                    ? "day"
+                                    : entry.occurredPrecision
+                                  : "unknown",
+                                timeSource: "manual",
+                              }
+                            : entry,
+                        ),
+                      )
+                    }
+                  />
+                </Field>
+                <Field label="事发结束日（可选）">
+                  <input
+                    type="date"
+                    className="field"
+                    value={item.occurredEndOn ?? ""}
+                    onChange={(event) =>
+                      setItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                occurredEndOn: event.target.value || null,
+                                timeSource: "manual",
+                              }
+                            : entry,
+                        ),
+                      )
+                    }
+                  />
+                </Field>
+                <Field label="事发精度">
+                  <select
+                    className="field"
+                    value={item.occurredPrecision}
+                    onChange={(event) =>
+                      setItems((current) =>
+                        current.map((entry) =>
+                          entry.id === item.id
+                            ? {
+                                ...entry,
+                                occurredPrecision: event.target
+                                  .value as MemoryItem["occurredPrecision"],
+                                timeSource: "manual",
+                              }
+                            : entry,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="day">日</option>
+                    <option value="week">周</option>
+                    <option value="month">月</option>
+                    <option value="unknown">未知</option>
+                  </select>
+                </Field>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-muted)]">
                 <span>来源 {labelOf(MEMORY_SOURCE_LABELS, item.source.kind)}</span>
                 <span>使用 {item.useCount} 次</span>
                 <span>更新于 {formatDateTime(item.updatedAt)}</span>
+                {item.occurredOn ? (
+                  <span>
+                    事发 {item.occurredOn}
+                    {item.occurredEndOn ? `～${item.occurredEndOn}` : ""}
+                  </span>
+                ) : (
+                  <span>无事发日锚定</span>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button

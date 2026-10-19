@@ -5,6 +5,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { selectMemories } from "@/server/memory/selector";
 import {
   memoryRepository,
@@ -22,6 +23,7 @@ const bodySchema = z.object({
 /** 只读预览：不更新 lastUsedAt / useCount，不产生任何写副作用。 */
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(bodySchema, await readJsonBody(request));
     const [memories, settings] = await Promise.all([
       memoryRepository.list(body.profileId),
@@ -37,6 +39,7 @@ export async function POST(request: Request): Promise<Response> {
     return apiSuccess({
       selectedIds: result.selected.map((memory) => memory.id),
       trace: result.trace,
+      timeWindow: result.timeWindow,
     });
   });
 }

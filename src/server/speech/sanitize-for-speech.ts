@@ -9,6 +9,9 @@ import "server-only";
 
 const FULLWIDTH_PAREN = /（[^（）]*）/g;
 const HALFWIDTH_PAREN = /\([^()]*\)/g;
+const TTS_PRONUNCIATIONS: ReadonlyArray<
+  readonly [pattern: RegExp, pronunciation: string]
+> = [[/\bZHAKA\b/gi, "扎卡"]];
 
 /** 去掉成对括号及其内容（含全角/半角）；多轮扫以处理嵌套简单情况。 */
 export function stripParentheticalBlocks(text: string): string {
@@ -50,6 +53,22 @@ function collapseWhitespace(text: string): string {
     .trim();
 }
 
+/** 清洗结果为空时返回空串，不回退原文；用于逐句送入 TTS。 */
+export function cleanForSpeech(raw: string): string {
+  let next = stripParentheticalBlocks(raw ?? "");
+  next = stripLeakedPlanLines(next);
+  return collapseWhitespace(next);
+}
+
+/** 仅在送入 TTS 前替换品牌词读音；界面文本与日志继续保留原始拼写。 */
+export function applyTtsPronunciations(text: string): string {
+  return TTS_PRONUNCIATIONS.reduce(
+    (spoken, [pattern, pronunciation]) =>
+      spoken.replace(pattern, pronunciation),
+    text,
+  );
+}
+
 /**
  * 将模型原文整理为可播报对话。
  * 若清洗后为空，回退原文（避免把合法短回复洗没）；硬件侧仍应优先避免脏输出进模型。
@@ -59,9 +78,7 @@ export function sanitizeForSpeech(raw: string): {
   stripped: boolean;
 } {
   const original = raw ?? "";
-  let next = stripParentheticalBlocks(original);
-  next = stripLeakedPlanLines(next);
-  next = collapseWhitespace(next);
+  const next = cleanForSpeech(original);
 
   if (!next) {
     return { text: collapseWhitespace(original), stripped: false };

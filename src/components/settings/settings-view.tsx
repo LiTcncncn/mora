@@ -23,7 +23,6 @@ import {
   REASONING_EFFORT_LABELS,
   CONTEXT_SECTION_LABELS,
 } from "@/lib/labels";
-import { ProfileManager } from "./profile-manager";
 import {
   BehaviorConfigEditor,
   type BehaviorConfigEditorHandle,
@@ -118,7 +117,7 @@ export function SettingsView() {
     setSettings((current) => (current ? updater(current) : current));
   };
 
-  if (!activeProfileId) return <p className="text-sm">正在加载档案…</p>;
+  if (!activeProfileId) return <p className="text-sm">正在加载配置…</p>;
   if (error && !settings) return <Notice tone="error">{error}</Notice>;
   if (!settings) return <p className="text-sm">加载中…</p>;
 
@@ -127,18 +126,12 @@ export function SettingsView() {
       {error ? <Notice tone="error">{error}</Notice> : null}
       {status ? <Notice>{status}</Notice> : null}
 
-      <ProfileManager />
+      <ConfigTransfer
+        profileId={activeProfileId}
+        onImported={() => void load(activeProfileId)}
+      />
 
-      <Notice>
-        Compare 与预览已接入行为配置 v2：每轮会先跑 Safety → Router → Turn Plan，再组装提示词。
-        下方 v1 Settings 仍管模型槽位、供应商、Memory 检索与 Context 预算；Energy 档位判定来自 v2 Router（可用手动 override）。
-      </Notice>
-
-      <Collapsible
-        title="行为配置 v2（Router / Energy / 世界观 / 示例卡）"
-        defaultOpen
-        keepMounted
-      >
+      <Collapsible title="ZHAKA 设定" keepMounted>
         <BehaviorConfigEditor
           ref={behaviorEditorRef}
           profileId={activeProfileId}
@@ -146,41 +139,33 @@ export function SettingsView() {
         />
       </Collapsible>
 
-      <ConfigTransfer
-        profileId={activeProfileId}
-        onImported={() => void load(activeProfileId)}
-      />
-
-      <Collapsible title="模型槽位（决定每轮参与比较的模型）" defaultOpen>
-        <ModelSlotEditor
-          settings={settings}
-          onChange={(slots) =>
-            patch((current) => ({
-              ...current,
-              compare: { ...current.compare, modelSlots: slots },
-            }))
-          }
-        />
-      </Collapsible>
-
-      <Collapsible title="供应商与生成参数">
+      <Collapsible title="大模型配置">
         <div className="space-y-6">
-          {PROVIDERS.map((provider) => (
-            <ProviderEditor
-              key={provider}
-              provider={provider}
-              settings={settings}
-              configured={providerStatus?.[provider].configured ?? false}
-              onChange={patch}
-            />
-          ))}
+          <ModelSlotEditor
+            settings={settings}
+            onChange={(slots) =>
+              patch((current) => ({
+                ...current,
+                compare: { ...current.compare, modelSlots: slots },
+              }))
+            }
+          />
+          <div className="space-y-4 border-t pt-4">
+            <p className="text-sm font-medium">供应商默认参数</p>
+            {PROVIDERS.map((provider) => (
+              <ProviderEditor
+                key={provider}
+                provider={provider}
+                settings={settings}
+                configured={providerStatus?.[provider].configured ?? false}
+                onChange={patch}
+              />
+            ))}
+          </div>
         </div>
       </Collapsible>
 
-      <Collapsible title="Energy 手动 override（Compare 可选覆盖 Router 档位）">
-        <Notice>
-          四档字数与策略编译读 v2「Energy v2 四档预算」。此处仅保留手动 override 开关与 v1 分类器设置（供对照/回滚）。
-        </Notice>
+      <Collapsible title="Energy 判定与手动覆盖">
         <EnergyEditor settings={settings} onChange={patch} />
       </Collapsible>
 
@@ -199,8 +184,8 @@ export function SettingsView() {
             的调试能力建立在每轮都能回看当时发生了什么之上。
           </Notice>
           <Field
-            label="每个档案保留的 run 运行记录上限"
-            hint="超限时删除该档案最旧的记录。"
+            label="保留的 run 运行记录上限"
+            hint="超限时删除最旧的记录。"
           >
             <input
               type="number"
@@ -264,10 +249,7 @@ function ModelSlotEditor({
 
   return (
     <div className="space-y-3">
-      <Notice>
-        修改某个槽位的模型会让它此前的对话历史与新模型不一致。建议改模型时新建对话，或复制一个新槽位。
-      </Notice>
-
+      <p className="text-sm font-medium">对比列</p>
       {slots.map((slot, index) => (
         <div key={slot.id} className="card space-y-3 p-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -281,11 +263,34 @@ function ModelSlotEditor({
               />
               启用
             </label>
-            <span className="mono text-[var(--color-muted)]">{slot.id}</span>
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                onChange([
+                  ...slots,
+                  {
+                    ...slot,
+                    id: `slot-${Date.now()}`,
+                    label: `${slot.label} 副本`,
+                  },
+                ])
+              }
+            >
+              复制
+            </button>
+            {slots.length > 1 ? (
+              <ConfirmButton
+                label="删除"
+                confirmLabel="确认删除"
+                onConfirm={() =>
+                  onChange(slots.filter((_, position) => position !== index))
+                }
+              />
+            ) : null}
           </div>
-
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="显示名称">
+            <Field label="名称">
               <input
                 className="field"
                 value={slot.label}
@@ -307,10 +312,7 @@ function ModelSlotEditor({
                 ))}
               </select>
             </Field>
-            <Field
-              label="模型 ID"
-              hint="请按你账号实际可用的模型填写，可先用侧边栏的模型测试确认。"
-            >
+            <Field label="模型">
               <input
                 className="field"
                 value={slot.modelId}
@@ -319,34 +321,6 @@ function ModelSlotEditor({
                 }
               />
             </Field>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="btn"
-              onClick={() =>
-                onChange([
-                  ...slots,
-                  {
-                    ...slot,
-                    id: `slot-${Date.now()}`,
-                    label: `${slot.label} 副本`,
-                  },
-                ])
-              }
-            >
-              复制槽位
-            </button>
-            {slots.length > 1 ? (
-              <ConfirmButton
-                label="删除槽位"
-                confirmLabel="确认删除"
-                onConfirm={() =>
-                  onChange(slots.filter((_, position) => position !== index))
-                }
-              />
-            ) : null}
           </div>
         </div>
       ))}
@@ -368,7 +342,7 @@ function ModelSlotEditor({
           ])
         }
       >
-        新增槽位
+        新增列
       </button>
     </div>
   );
@@ -410,7 +384,7 @@ function ProviderEditor({
       <div className="flex flex-wrap items-center gap-3">
         <SectionTitle>{labelOf(PROVIDER_LABELS, provider)}</SectionTitle>
         <span className="text-xs text-[var(--color-muted)]">
-          API Key 接口密钥 {configured ? "已配置" : "未配置"}（只在服务端读取）
+          Key {configured ? "已配置" : "未配置"}
         </span>
         <button
           type="button"
@@ -432,16 +406,13 @@ function ProviderEditor({
             }
           }}
         >
-          {testing ? "测试中…" : "测试连接"}
+          {testing ? "测试中…" : "测试"}
         </button>
-        <span className="text-xs text-[var(--color-muted)]">
-          测试会真实调用一次，产生极少量费用。
-        </span>
       </div>
       {testResult ? <Notice>{testResult}</Notice> : null}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="默认模型 ID">
+        <Field label="默认模型">
           <input
             className="field"
             value={config.modelId}
@@ -459,7 +430,7 @@ function ProviderEditor({
             }
           />
         </Field>
-        <Field label="max output tokens 最大输出长度">
+        <Field label="最大输出 tokens">
           <input
             type="number"
             className="field"
@@ -469,7 +440,7 @@ function ProviderEditor({
             }
           />
         </Field>
-        <Field label="temperature 随机度" hint="留空表示不发送该参数。">
+        <Field label="temperature">
           <input
             className="field"
             value={config.generation.temperature ?? ""}
@@ -478,7 +449,7 @@ function ProviderEditor({
             }
           />
         </Field>
-        <Field label="top_p 核采样" hint="留空表示不发送该参数。">
+        <Field label="top_p">
           <input
             className="field"
             value={config.generation.topP ?? ""}
@@ -487,7 +458,7 @@ function ProviderEditor({
             }
           />
         </Field>
-        <Field label="reasoning effort 推理强度">
+        <Field label="reasoning">
           <select
             className="field"
             value={config.generation.reasoningEffort ?? ""}
@@ -511,7 +482,7 @@ function ProviderEditor({
             )}
           </select>
         </Field>
-        <Field label="thinking mode 思考模式">
+        <Field label="thinking">
           <select
             className="field"
             value={config.generation.thinkingMode ?? ""}
@@ -525,11 +496,11 @@ function ProviderEditor({
             }
           >
             <option value="">不发送</option>
-            <option value="disabled">disabled 关闭</option>
-            <option value="enabled">enabled 开启</option>
+            <option value="disabled">关闭</option>
+            <option value="enabled">开启</option>
           </select>
         </Field>
-        <Field label="超时（毫秒）">
+        <Field label="超时 ms">
           <input
             type="number"
             className="field"
@@ -551,7 +522,7 @@ function ProviderEditor({
             }
           />
         </Field>
-        <Field label="最大重试次数" hint="重试耗尽后直接显示调用失败。">
+        <Field label="最大重试">
           <input
             type="number"
             className="field"

@@ -1,9 +1,22 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { ConversationMessage } from "@/domain/conversation";
-import { MEMORY_TYPES, type MemoryItem, type MemoryType } from "@/domain/memory";
+import {
+  calendarDateSchema,
+  MEMORY_TYPES,
+  memoryOccurredPrecisionSchema,
+  type MemoryItem,
+  type MemoryOccurredPrecision,
+  type MemoryTimeSource,
+  type MemoryType,
+} from "@/domain/memory";
 import type { MemorySettings } from "@/domain/settings";
 import { getAdapter } from "../adapters/registry";
+import {
+  formatCivilDate,
+  inferOccurredOnFromText,
+  MEMORY_CALENDAR_TIME_ZONE,
+} from "./time-window";
 
 const EXTRACTOR_INSTRUCTIONS = [
   "你是一个信息抽取程序，不是聊天助手。",
@@ -19,8 +32,11 @@ const EXTRACTOR_INSTRUCTIONS = [
   "- 一次最多 5 条。每条简体中文、第二人称、不超过 120 字。例如“你最近在做项目交接”。",
   "- type 只能是：profile、preference、event、support_strategy、boundary、relationship、other。",
   "- importance 是 0 到 1 之间的小数。",
+  "- 若用户提到具体或相对事发时间，尽量给出 occurredOn（YYYY-MM-DD，按东八区民事日）与 occurredPrecision（day|week|month|unknown）。",
+  "- 相对词请换算成绝对日：昨天/前天/上周（取该周周一）/本周等；说不清则 occurredOn 为 null、occurredPrecision 为 unknown。",
+  "- profile/preference 等稳定属性通常无事发日：occurredOn 填 null。",
   "",
-  '只输出 JSON：{"candidates":[{"type":"preference","content":"...","importance":0.6}]}',
+  '只输出 JSON：{"candidates":[{"type":"event","content":"...","importance":0.6,"occurredOn":"2026-03-12","occurredPrecision":"day"}]}',
   "不要输出 JSON 以外的任何文字或代码块标记。",
 ].join("\n");
 
@@ -45,18 +61,19 @@ export interface PriorContextLine {
 export interface ExtractCandidatesInput {
   profileId: string;
   conversationId: string;
-  /** 本轮要抽取的用户原话。 */
   userTexts: ExtractionText[];
-  /** 本轮用户开口之前的对话，只用于解开指代。 */
   priorContext?: PriorContextLine[];
   memorySettings: MemorySettings;
   timeoutMs: number;
+  now?: Date;
 }
 
 interface RawCandidate {
   type?: string;
   content?: string;
   importance?: number;
+  occurredOn?: string | null;
+  occurredPrecision?: string;
 }
 
 export function parseCandidates(text: string): RawCandidate[] {
@@ -88,10 +105,6 @@ function clip(text: string, maxChars: number): string {
   return `${chars.slice(0, maxChars).join("")}…`;
 }
 
-/**
- * 取焦点用户句之前的上下文。不要包含该句之后的陪伴回复，
- * 否则会把本轮新生成的内容误当成「你说的」所指。
- */
 export function priorContextBeforeUserMessage(
   messages: ConversationMessage[],
   focusUserMessageId: string,
@@ -135,8 +148,13 @@ function normalizeType(value: string | undefined): MemoryType {
 function renderExtractorInput(
   userTexts: ExtractionText[],
   priorContext: PriorContextLine[],
+  now: Date,
 ): string {
   const lines: string[] = [];
+  lines.push(
+    `今日民事日（${MEMORY_CALENDAR_TIME_ZONE}）：${formatCivilDate(now)}`,
+  );
+  lines.push("");
   if (priorContext.length > 0) {
     lines.push("上文（只用于解开指代，不要把陪伴讲的情节写成用户经历）：");
     for (const line of priorContext) {
@@ -149,6 +167,55 @@ function renderExtractorInput(
     lines.push(`用户说：${item.content}`);
   }
   return lines.join("\n");
+}
+
+export function resolveOccurredFields(
+  candidate: RawCandidate,
+  userTexts: ExtractionText[],
+  now: Date,
+): {
+  occurredOn: string | null;
+  occurredEndOn: null;
+  occurredPrecision: MemoryOccurredPrecision;
+  timeSource: MemoryTimeSource;
+} {
+  const parsedOn =
+    typeof candidate.occurredOn === "string"
+      ? calendarDateSchema.safeParse(candidate.occurredOn)
+      : null;
+  const parsedPrecision = memoryOccurredPrecisionSchema.safeParse(
+    candidate.occurredPrecision,
+  );
+
+  if (parsedOn?.success) {
+    return {
+      occurredOn: parsedOn.data,
+      occurredEndOn: null,
+      occurredPrecision: parsedPrecision.success ? parsedPrecision.data : "day",
+      timeSource: "user_stated",
+    };
+  }
+
+  const joined = [
+    ...userTexts.map((item) => item.content),
+    typeof candidate.content === "string" ? candidate.content : "",
+  ].join("\n");
+  const inferred = inferOccurredOnFromText(joined, now);
+  if (inferred) {
+    return {
+      occurredOn: inferred.occurredOn,
+      occurredEndOn: null,
+      occurredPrecision: inferred.occurredPrecision,
+      timeSource: "inferred_from_chat",
+    };
+  }
+
+  return {
+    occurredOn: null,
+    occurredEndOn: null,
+    occurredPrecision: "unknown",
+    timeSource: "none",
+  };
 }
 
 /**
@@ -164,12 +231,13 @@ export async function extractMemoryCandidates(
   const config = memorySettings.autoCandidateExtraction;
   const adapter = getAdapter(config.provider);
   const priorContext = input.priorContext ?? [];
+  const now = input.now ?? new Date();
 
   const result = await adapter.complete({
     provider: config.provider,
     modelId: config.modelId,
     instructions: EXTRACTOR_INSTRUCTIONS,
-    input: renderExtractorInput(userTexts, priorContext),
+    input: renderExtractorInput(userTexts, priorContext, now),
     generation: {
       temperature: null,
       topP: null,
@@ -191,7 +259,7 @@ export async function extractMemoryCandidates(
     },
   });
 
-  const timestamp = new Date().toISOString();
+  const timestamp = now.toISOString();
   const lastMessageId = userTexts[userTexts.length - 1]!.messageId;
 
   return parseCandidates(result.text)
@@ -202,30 +270,37 @@ export async function extractMemoryCandidates(
         isGroundedMemoryContent(candidate.content),
     )
     .slice(0, 5)
-    .map((candidate) => ({
-      id: `mem-${randomUUID()}`,
-      profileId,
-      type: normalizeType(candidate.type),
-      content: candidate.content.trim().slice(0, 300),
-      importance:
-        typeof candidate.importance === "number"
-          ? Math.min(1, Math.max(0, candidate.importance))
-          : 0.5,
-      enabled: true,
-      pinned: false,
-      tags: [],
-      source: {
-        kind: "conversation_candidate" as const,
-        conversationId,
-        messageId: lastMessageId,
-      },
-      status: memorySettings.autoCandidateExtraction.requireManualApproval
-        ? ("candidate" as const)
-        : ("active" as const),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      lastUsedAt: null,
-      useCount: 0,
-      expiresAt: null,
-    }));
+    .map((candidate): MemoryItem => {
+      const occurred = resolveOccurredFields(candidate, userTexts, now);
+      return {
+        id: `mem-${randomUUID()}`,
+        profileId,
+        type: normalizeType(candidate.type),
+        content: candidate.content.trim().slice(0, 300),
+        importance:
+          typeof candidate.importance === "number"
+            ? Math.min(1, Math.max(0, candidate.importance))
+            : 0.5,
+        enabled: true,
+        pinned: false,
+        tags: [],
+        source: {
+          kind: "conversation_candidate",
+          conversationId,
+          messageId: lastMessageId,
+        },
+        status: memorySettings.autoCandidateExtraction.requireManualApproval
+          ? "candidate"
+          : "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastUsedAt: null,
+        useCount: 0,
+        expiresAt: null,
+        occurredOn: occurred.occurredOn,
+        occurredEndOn: occurred.occurredEndOn,
+        occurredPrecision: occurred.occurredPrecision,
+        timeSource: occurred.timeSource,
+      };
+    });
 }

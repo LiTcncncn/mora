@@ -43,6 +43,8 @@ export interface BuildContextInput {
   energyResolution: EnergyResolution;
   selectedMemories: MemoryItem[];
   memoryTrace: MemorySelectionTrace[];
+  /** 用户话触发的回顾时间窗标签，写入 memory 分区文案。 */
+  memoryTimeWindowLabel?: string | null;
   promptPreset: PromptPreset;
   settings: Pick<SettingsData, "context" | "memory">;
 }
@@ -116,6 +118,7 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
     energyResolution,
     selectedMemories,
     memoryTrace,
+    memoryTimeWindowLabel = null,
     promptPreset,
     settings,
   } = input;
@@ -153,7 +156,11 @@ export function buildContext(input: BuildContextInput): ContextSnapshot {
       "persona.renderedTraits": renderPersonaTraits(persona),
       "energy.level": energyResolution.level,
       "energy.policy": renderTurnPlanText(turnPlan, behaviorConfig, userMessage),
-      "memory.rendered": renderMemories(memories, settings.context),
+      "memory.rendered": renderMemories(
+        memories,
+        settings.context,
+        memoryTimeWindowLabel,
+      ),
       "history.rendered": renderHistory(history, settings.context),
       "user.message": userMessage,
     };

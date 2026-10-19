@@ -6,6 +6,7 @@ import {
   readJsonBody,
   requireQueryParam,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { conversationRepository } from "@/server/persistence/repositories";
 
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ const createSchema = z.object({
 
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const profileId = requireQueryParam(request, "profileId");
     const conversations = await conversationRepository.list(profileId);
     return apiSuccess(
@@ -34,11 +36,22 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(createSchema, await readJsonBody(request));
     const created = await conversationRepository.create(
       body.profileId,
       body.title,
     );
     return apiSuccess(created, 201);
+  });
+}
+
+/** 删除当前配置槽下全部对话；不级联删除 runs。 */
+export async function DELETE(request: Request): Promise<Response> {
+  return handleRoute(async () => {
+    await requireAdmin();
+    const profileId = requireQueryParam(request, "profileId");
+    const result = await conversationRepository.removeAll(profileId);
+    return apiSuccess(result);
   });
 }

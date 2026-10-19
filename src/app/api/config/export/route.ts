@@ -1,4 +1,5 @@
 import { handleRoute, requireQueryParam } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { exportConfigBundle } from "@/server/config/bundle";
 
 export const runtime = "nodejs";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 /** 返回可下载的 JSON 文件，不含任何密钥或用户内容。 */
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const profileId = requireQueryParam(request, "profileId");
     const bundle = await exportConfigBundle(profileId);
     const fileName = `mora-config-${bundle.exportedAt.slice(0, 10)}.json`;

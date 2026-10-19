@@ -5,6 +5,7 @@ import {
   parseWith,
   readJsonBody,
 } from "@/server/api/response";
+import { requireAdmin } from "@/server/auth/require-auth";
 import { behaviorConfigRepository } from "@/server/config/behavior-repository";
 import { buildCoverageMatrix } from "@/server/config/behavior-validate";
 import { profileRepository } from "@/server/persistence/repositories";
@@ -30,6 +31,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(bodySchema, await readJsonBody(request));
     const profile = await profileRepository.requireProfile(body.profileId);
 

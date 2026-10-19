@@ -80,4 +80,43 @@ describe("selectMemories", () => {
     });
     expect(result.selected).toHaveLength(0);
   });
+
+  it("有时间窗时只保留事发日相交的记忆", () => {
+    const now = new Date("2026-09-09T12:00:00+08:00");
+    const memories = [
+      makeMemory({
+        id: "last-week",
+        content: "你上周完成了项目交接",
+        occurredOn: "2026-09-03",
+        occurredPrecision: "day",
+        timeSource: "manual",
+        importance: 0.9,
+      }),
+      makeMemory({
+        id: "no-date",
+        content: "你做过项目交接",
+        occurredOn: null,
+        importance: 0.95,
+      }),
+      makeMemory({
+        id: "older",
+        content: "你八月做过项目交接",
+        occurredOn: "2026-08-10",
+        importance: 0.99,
+      }),
+    ];
+
+    const result = selectMemories({
+      memories,
+      userMessage: "聊聊上周的事",
+      settings,
+      now,
+    });
+
+    expect(result.timeWindow?.label).toBe("上周");
+    expect(result.selected.map((memory) => memory.id)).toEqual(["last-week"]);
+    expect(
+      result.trace.find((entry) => entry.memoryId === "no-date")?.reason,
+    ).toContain("无事发日");
+  });
 });

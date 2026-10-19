@@ -6,7 +6,7 @@ export default function MemoryPage() {
     <>
       <PageHeader
         title="Memory 记忆"
-        description="记忆只属于当前测试档案。系统抽取后默认直接写入，可在设置中改为需人工确认。"
+        description="系统抽取后默认直接写入。管理员可在此管理记忆与事发日；体验账号记忆保存在各自浏览器。说「聊聊上周的事」时，会按事发日时间窗筛选。"
       />
       <MemoryView />
     </>

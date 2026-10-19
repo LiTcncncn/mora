@@ -67,6 +67,13 @@ vi.mock("../adapters/registry", () => ({
         if (!handler) throw new AppError("PROVIDER_UNAVAILABLE", "未配置 mock");
         return handler();
       },
+      stream: async function* () {
+        const handler = completions.get(provider);
+        if (!handler) throw new AppError("PROVIDER_UNAVAILABLE", "未配置 mock");
+        const result = await handler();
+        yield { type: "delta" as const, text: result.text };
+        yield { type: "done" as const, result };
+      },
       testConnection: async () => ({ ok: true, message: "ok", latencyMs: 1 }),
     }) as ModelAdapter,
   listAdapters: () => [],

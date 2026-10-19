@@ -25,6 +25,7 @@ export default defineConfig({
     env: {
       // E2E 使用独立数据目录，绝不写入开发用的 data/。
       MORA_DATA_DIR: "./.e2e-data",
+      SESSION_SECRET: "zhaka-e2e-session-secret",
       KIMI_API_KEY: "sk-e2e-kimi-placeholder",
       DEEPSEEK_API_KEY: "sk-e2e-deepseek-placeholder",
     },

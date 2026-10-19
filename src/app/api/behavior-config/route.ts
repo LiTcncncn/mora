@@ -14,6 +14,7 @@ import {
   resolveForSave,
 } from "@/server/config/behavior-validate";
 import { profileRepository } from "@/server/persistence/repositories";
+import { requireAdmin, requireAuth } from "@/server/auth/require-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAuth();
     const profileId = requireQueryParam(request, "profileId");
     const profile = await profileRepository.requireProfile(profileId);
 
@@ -53,6 +55,7 @@ const saveBodySchema = z.object({
 /** 服务端重新完整校验，不信任浏览器端校验结果。 */
 export async function PUT(request: Request): Promise<Response> {
   return handleRoute(async () => {
+    await requireAdmin();
     const body = parseWith(saveBodySchema, await readJsonBody(request));
     const profile = await profileRepository.requireProfile(body.profileId);
 

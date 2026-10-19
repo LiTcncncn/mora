@@ -25,6 +25,7 @@ async function request<T>(
   const { json, ...rest } = init ?? {};
   const response = await fetch(path, {
     ...rest,
+    credentials: "same-origin",
     headers: {
       ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(rest.headers ?? {}),
@@ -43,6 +44,8 @@ export const api = {
     request<T>(path, { method: "POST", json }),
   put: <T>(path: string, json?: unknown) =>
     request<T>(path, { method: "PUT", json }),
+  patch: <T>(path: string, json?: unknown) =>
+    request<T>(path, { method: "PATCH", json }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
